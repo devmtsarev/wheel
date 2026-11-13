@@ -40,3 +40,16 @@ test('минимальный шанс выигрыша 40%: потолок 40', 
 test('высокая каннибализация: цель по ROI недостижима, коридора нет', () => { const m = M.evaluate({ ...D, c0: 0.3, phi: 0.45 }); assert.equal(m.feasible, false); assert.equal(m.opt, 50); });
 test('цена по ёмкости: спрос 45 при ёмкости 30 и цене 33 даёт 43', () => { near(33 * Math.pow(45 / 30, 1 / 1.5), 43.2, 0.1); near(M.capacityPrice(ev, 1.5, 1), ev, 1e-9); });
 test('слабая эластичность: при ε = 0,5 и двойном спросе цена по ёмкости в 4 раза выше EV', () => { near(M.capacityPrice(ev, 0.5, 2) / ev, 4, 1e-9); });
+
+test('цена по k на меню-примере: k = 1 даёт 50, k = 0,8 даёт 40, k = 0,5 упирается в границу 31', () => {
+  assert.equal(M.priceForK(b, 1).S, 50); assert.equal(M.priceForK(b, 0.8).S, 40);
+  const p = M.priceForK(b, 0.5); assert.equal(p.S, 31); assert.equal(p.bound, 'min'); assert.equal(p.floorBy, 'risk');
+  assert.equal(M.priceForK(b, 1.3).S, 50); assert.equal(M.priceForK(b, 1.3).bound, 'max'); });
+test('цена по k на другом меню: дешёвое ровное меню, коридор 8–15', () => {
+  const flat = M.base(Object.assign({}, D, { items: [[5, 25], [10, 25], [15, 20], [20, 15], [30, 10], [50, 5]].map(([p, w]) => ({ p, w })) }));
+  near(flat.EV, 15.25, 1e-9); const p = M.priceForK(flat, 0.8); assert.equal(p.lo, 8); assert.equal(p.hi, 15); assert.equal(p.S, 12); assert.equal(p.floorBy, 'risk'); });
+test('валидатор: меню-пример проходит, джекпот 6% отклонён по двум правилам', () => {
+  const v = M.validate(items, b); assert.ok(v.ok); near(v.consolation, 0.22, 1e-9); near(v.jackpotShare, 0.199, 0.0005);
+  const risky = items.map((i) => i.p === 5 ? { p: 5, w: 18 } : i.p === 500 ? { p: 500, w: 6 } : i), rb = M.base(Object.assign({}, D, { items: risky }));
+  const r = M.validate(risky, rb); near(rb.EV, 70.1, 1e-9); near(rb.CV, 1.69, 0.005); near(r.jackpotShare, 0.428, 0.0005);
+  assert.deepEqual(r.errors, ['consolation', 'jackpot']); });

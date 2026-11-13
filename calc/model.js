@@ -104,6 +104,36 @@
     for (let S = feasible ? lo : lo0; S <= hi; S++) { const g = gain(S, b.EV, e); if (!(g <= optG + EPS)) { opt = S; optG = g; } }
     return { bRoi, lo, hi, lo0, feasible, opt, optG, capS: capacityPrice(b.EV, e.eps, e.load) };
   }
+  // «Расчёт цены для любой модели»: S(k) = min(S_max, max(S_min, round(k·EV)))
+  // b — результат base(); возвращает цену, границы и то, какая граница сработала
+  function priceForK(b, k) {
+    const lo = Math.ceil(Math.max(b.bMenu, b.bAvg, b.bRisk) - EPS), hi = Math.floor(Math.min(b.EV, b.Sw) + EPS);
+    const raw = Math.round(k * b.EV), feasible = lo <= hi;
+    const S = feasible ? Math.min(hi, Math.max(lo, raw)) : NaN;
+    const floorBy = b.bRisk >= b.bAvg - EPS && b.bRisk >= b.bMenu - EPS ? 'risk' : b.bAvg >= b.bMenu ? 'avg' : 'menu';
+    return { S, raw, lo, hi, feasible, floorBy, bound: !feasible ? 'none' : raw < lo ? 'min' : raw > hi ? 'max' : '', kEff: S / b.EV };
+  }
+  // «Валидатор колеса»: правила, которые проверяются по меню и шансам.
+  // Роль пункта задаётся полем role ('consolation' | 'jackpot'); без него
+  // утешительным считается самый дешёвый пункт, джекпотом самый дорогой.
+  const LIMITS = { consolationMin: 0.20, jackpotShareMax: 0.25, cvMax: 2.0 };
+  function validate(items, b, lim) {
+    const L = Object.assign({}, LIMITS, lim), its = items.filter((i) => i.p >= 1 && i.w > 0);
+    const W = its.reduce((s, i) => s + i.w, 0) || 1, ps = its.map((i) => Math.round(i.p));
+    const pMin = Math.min(...ps), pMax = Math.max(...ps);
+    const hasC = its.some((i) => i.role === 'consolation'), hasJ = its.some((i) => i.role === 'jackpot');
+    let consolation = 0, jackpot = 0;
+    its.forEach((i, j) => {
+      if (hasC ? i.role === 'consolation' : ps[j] === pMin) consolation += i.w / W;
+      if (hasJ ? i.role === 'jackpot' : ps[j] === pMax) jackpot += ps[j] * i.w / W;
+    });
+    const jackpotShare = jackpot / b.EV, errors = [];
+    if (consolation < L.consolationMin - EPS) errors.push('consolation');
+    if (jackpotShare > L.jackpotShareMax + EPS) errors.push('jackpot');
+    if (b.CV > L.cvMax + EPS) errors.push('cv');
+    if (!priceForK(b, 1).feasible) errors.push('price');
+    return { ok: errors.length === 0, consolation, jackpotShare, cv: b.CV, errors };
+  }
   // полный расчёт. Доли передаются числами от 0 до 1: alpha, f, wmin
   function evaluate(p) {
     const b = base(p), e = { sigma: p.sigma, f: p.f, rho: p.rho, c0: p.c0, phi: p.phi, eps: p.eps, load: p.load };
@@ -111,5 +141,5 @@
   }
 
   return { SERIES, normalize, stats, buildTails, lossProb, riskFloor, avgFloor, menuGuard, winChance, winCeiling,
-    cannibalization, breakEvenK, roiFloorK, optimumK, volume, capacityPrice, gain, roi, base, solve, evaluate };
+    cannibalization, breakEvenK, roiFloorK, optimumK, volume, capacityPrice, gain, roi, base, solve, evaluate, priceForK, validate, LIMITS };
 });
