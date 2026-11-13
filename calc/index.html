@@ -284,6 +284,20 @@ const st = {
   mu: 0.4, delta: 0.1, alpha: 5, Nh: 30, wmin: 0, sigma: 0.4, f: 5, rho: 3, c0: 0.2, phi: 0.3, eps: 1.5, load: 0.5, S: 50, auto: true
 };
 
+// Готовые меню: те же, что в menus.example.json и в документе
+const PRESETS = {
+  example: { n: 'Меню-пример', items: [[ 'Спасибо в чат', 5, 22 ], [ 'Воздушный поцелуй', 15, 20 ], [ 'Комплимент зрителю', 20, 17 ], [ 'Ответ на вопрос', 40, 13 ],
+    [ 'Песня (куплет)', 60, 11 ], [ 'Танец, 1 минута', 100, 9 ], [ 'Смена образа', 200, 6 ], [ 'Джекпот', 500, 2 ]] },
+  expensive: { n: 'Дорогое меню', items: [[ 'Пункт 1', 20, 22 ], [ 'Пункт 2', 50, 20 ], [ 'Пункт 3', 80, 17 ], [ 'Пункт 4', 150, 13 ],
+    [ 'Пункт 5', 250, 11 ], [ 'Пункт 6', 400, 9 ], [ 'Пункт 7', 700, 6 ], [ 'Джекпот', 1500, 2 ]] },
+  flat: { n: 'Дешёвое ровное меню', items: [[ 'Пункт 1', 5, 25 ], [ 'Пункт 2', 10, 25 ], [ 'Пункт 3', 15, 20 ], [ 'Пункт 4', 20, 15 ], [ 'Пункт 5', 30, 10 ], [ 'Пункт 6', 50, 5 ]] },
+  jackpot: { n: 'Редкий большой джекпот', items: [[ 'Пункт 1', 5, 30 ], [ 'Пункт 2', 10, 30 ], [ 'Пункт 3', 20, 25 ], [ 'Пункт 4', 50, 14 ], [ 'Джекпот', 2000, 1 ]] }
+};
+const presetItems = (key) => PRESETS[key].items.map(([t, p, w]) => ({ t, p, w }));
+// адрес этой страницы для ссылок: внутри оболочки claude.ai — адрес артефакта, иначе текущий адрес
+const ARTIFACT_URL = 'https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e';
+let menuKey = 'example';
+
 const GROUPS = [
   { h: 'Затраты и риск', note: 'Задаёт клиент платформы и вендор.', c: [
     { k: 'mu', n: 'μ, доля затрат в цене меню', min: 0.1, max: 1, step: 0.01, d: 2, hint: 'Во сколько обходится приз относительно его цены по меню' },
@@ -447,6 +461,9 @@ function buildControls() {
   const box = $('#controls'); let h = `<div class="group"><h2>Цена вращения</h2>
     <div class="ctl"><div class="top"><span>Выбранная цена, токены</span><b id="v-S"></b></div><input type="range" id="in-S" min="1" max="100" step="1"></div>
     <label class="chk"><input type="checkbox" id="in-auto"> Держать цену на оптимуме</label></div>
+    <div class="group"><h2>Ссылка на эти настройки</h2><p class="note">В ссылке сохраняются меню и все ползунки. Её можно вставить в документ или отправить.</p>
+    <div class="row"><input id="link" readonly aria-label="Ссылка на текущие настройки" style="flex:1;min-width:0"><button type="button" id="copy">Скопировать</button></div>
+    <div class="row"><span class="note">Готовые меню:</span>${Object.keys(PRESETS).map((k) => `<button type="button" data-preset="${k}">${esc(PRESETS[k].n)}</button>`).join('')}</div></div>
     <div class="group"><h2>Меню колеса</h2><p class="note">Цена пункта по меню и его вес. Шансы считаются из весов.</p>
     <table class="menu"><thead><tr><th>Пункт</th><th class="n">Цена</th><th class="n">Вес</th><th>Шанс</th><th class="x"></th></tr></thead><tbody id="menu"></tbody></table>
     <div class="row"><button type="button" id="add">Добавить пункт</button><button type="button" id="reset">Сбросить всё</button></div></div>`;
@@ -458,17 +475,22 @@ function buildControls() {
   for (const g of GROUPS) for (const c of g.c) $('#in-' + c.k).addEventListener('input', (e) => { st[c.k] = +e.target.value; update(); });
   $('#in-S').addEventListener('input', (e) => { st.S = +e.target.value; st.auto = false; update(); });
   $('#in-auto').addEventListener('change', (e) => { st.auto = e.target.checked; update(); });
-  $('#add').addEventListener('click', () => { st.items.push({ t: 'Новый пункт', p: 50, w: 5 }); renderMenu(); update(); });
-  $('#reset').addEventListener('click', () => { Object.assign(st, JSON.parse(DEFAULTS)); renderMenu(); update(); });
+  $('#add').addEventListener('click', () => { menuKey = ''; st.items.push({ t: 'Новый пункт', p: 50, w: 5 }); renderMenu(); update(); });
+  $('#reset').addEventListener('click', () => { Object.assign(st, JSON.parse(DEFAULTS)); menuKey = 'example'; renderMenu(); update(); });
+  $('#controls').addEventListener('click', (e) => { const b = e.target.closest('button[data-preset]'); if (!b) return;
+    menuKey = b.dataset.preset; st.items = presetItems(menuKey); st.auto = true; renderMenu(); update(); });
+  $('#copy').addEventListener('click', async () => { const el = $('#link'); el.select();
+    try { await navigator.clipboard.writeText(el.value); $('#copy').textContent = 'Скопировано'; } catch (err) { try { document.execCommand('copy'); $('#copy').textContent = 'Скопировано'; } catch (e2) { $('#copy').textContent = 'Выделено: Ctrl+C'; } }
+    setTimeout(() => { $('#copy').textContent = 'Скопировать'; }, 1500); });
   $('#menu').addEventListener('input', (e) => { const i = +e.target.dataset.i, k = e.target.dataset.k; if (!k) return;
-    st.items[i][k] = k === 't' ? e.target.value : clamp(Math.round(+e.target.value || 0), 0, k === 'p' ? 1000 : 1000); update(); });
+    menuKey = ''; st.items[i][k] = k === 't' ? e.target.value : clamp(Math.round(+e.target.value || 0), 0, k === 'p' ? 5000 : 1000); update(); });
   $('#menu').addEventListener('click', (e) => { const b = e.target.closest('button[data-del]'); if (!b || st.items.length <= 2) return;
-    st.items.splice(+b.dataset.del, 1); renderMenu(); update(); });
+    menuKey = ''; st.items.splice(+b.dataset.del, 1); renderMenu(); update(); });
   renderMenu();
 }
 function renderMenu() {
   $('#menu').innerHTML = st.items.map((it, i) => `<tr><td><input id="m-t-${i}" data-i="${i}" data-k="t" value="${esc(it.t)}" aria-label="Название пункта"></td>
-    <td><input id="m-p-${i}" data-i="${i}" data-k="p" type="number" min="1" max="1000" value="${it.p}" aria-label="Цена по меню"></td>
+    <td><input id="m-p-${i}" data-i="${i}" data-k="p" type="number" min="1" max="5000" value="${it.p}" aria-label="Цена по меню"></td>
     <td><input id="m-w-${i}" data-i="${i}" data-k="w" type="number" min="0" max="1000" value="${it.w}" aria-label="Вес"></td>
     <td class="q" id="m-q-${i}"></td><td><button type="button" class="x" data-del="${i}" aria-label="Удалить пункт">×</button></td></tr>`).join('');
 }
@@ -483,9 +505,46 @@ function render() {
   for (const g of GROUPS) for (const c of g.c) { $('#in-' + c.k).value = st[c.k]; $('#v-' + c.k).textContent = fmt(st[c.k], c.d) + (c.suf || ''); }
   const Wsum = st.items.reduce((s, i) => s + (i.p >= 1 && i.w > 0 ? i.w : 0), 0) || 1;
   st.items.forEach((it, i) => { const el = $('#m-q-' + i); if (el) el.textContent = it.p >= 1 && it.w > 0 ? pct(it.w / Wsum, 1) : '—'; });
+  syncLink();
   drawTiles(m); drawCorridor(m); drawGain(m); drawRisk(m); drawWin(m); drawHeat0(m); drawHeat1(m); drawHeat2(m);
 }
-buildControls(); render();
+
+// ---------- параметры в ссылке: #menu=jackpot&mu=0.45&S=40 ----------
+// menu — готовое меню (example, expensive, flat, jackpot) или items=цена:вес,цена:вес,…
+// остальные ключи — ползунки (mu, delta, alpha, Nh, wmin, sigma, f, rho, c0, phi, eps, load), S — цена, auto=0|1
+const KEYS = GROUPS.flatMap((g) => g.c);
+const DEF = JSON.parse(DEFAULTS);
+function readParams() {
+  const raw = (location.hash || '').replace(/^#/, '') || (location.search || '').replace(/^\?/, '');
+  if (!raw) return false;
+  const q = new URLSearchParams(raw); let any = false;
+  if (q.has('menu') && PRESETS[q.get('menu')]) { menuKey = q.get('menu'); st.items = presetItems(menuKey); any = true; }
+  if (q.has('items')) {
+    const its = q.get('items').split(',').map((x, i) => { const [p, w, ...t] = x.split(':'); return { t: t.join(':') || 'Пункт ' + (i + 1), p: Math.round(+p), w: Math.round(+w) }; })
+      .filter((i) => i.p >= 1 && i.p <= 5000 && i.w >= 0);
+    if (its.length >= 2) { menuKey = ''; st.items = its; any = true; }
+  }
+  for (const c of KEYS) if (q.has(c.k)) { const v = +q.get(c.k); if (isFinite(v)) { st[c.k] = clamp(v, c.min, c.max); any = true; } }
+  if (q.has('S')) { const v = +q.get('S'); if (isFinite(v)) { st.S = v; st.auto = false; any = true; } }
+  if (q.has('auto')) { st.auto = q.get('auto') !== '0'; any = true; }
+  return any;
+}
+function paramString() {
+  const q = new URLSearchParams();
+  if (menuKey && menuKey !== 'example') q.set('menu', menuKey);
+  else if (!menuKey) q.set('items', st.items.filter((i) => i.p >= 1 && i.w > 0).map((i) => i.p + ':' + i.w).join(','));
+  for (const c of KEYS) if (Math.abs(st[c.k] - DEF[c.k]) > 1e-9) q.set(c.k, String(+st[c.k].toFixed(4)));
+  if (!st.auto) q.set('S', String(st.S));
+  return q.toString().replace(/%3A/gi, ':').replace(/%2C/gi, ',');
+}
+let inFrame = true; try { inFrame = window.self !== window.top; } catch (e) { inFrame = true; }
+function syncLink() {
+  const p = paramString(), base = inFrame || location.protocol === 'about:' ? ARTIFACT_URL : location.href.replace(/[#?].*$/, '');
+  $('#link').value = base + (p ? '#' + p : '');
+  try { if (!inFrame && location.hash.replace(/^#/, '') !== p) history.replaceState(null, '', p ? '#' + p : location.pathname + location.search); } catch (e) {}
+}
+window.addEventListener('hashchange', () => { if (location.hash.replace(/^#/, '') === paramString()) return; Object.assign(st, JSON.parse(DEFAULTS)); menuKey = 'example'; readParams(); renderMenu(); update(); });
+buildControls(); readParams(); renderMenu(); render();
 </script>
 
 </body>

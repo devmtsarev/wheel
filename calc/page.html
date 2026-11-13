@@ -1,0 +1,540 @@
+<title>Калькулятор цены вращения</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700&display=swap">
+<style>
+/* Layout: слева липкая панель вводных, справа сводка и графики в две колонки; на телефоне всё в один столбец */
+:root {
+  --bg: #f6f5fa; --panel: #ffffff; --ink: #1c1a2e; --muted: #625f7a; --line: #dedbe9;
+  --accent: #4b3fd6; --accent-soft: rgba(75, 63, 214, .14); --lo: #c2571a; --lo-soft: rgba(194, 87, 26, .16);
+  --hi: #0d7f76; --hi-soft: rgba(13, 127, 118, .16); --good: #1a8a52; --bad: #c23b3b; --warn: #b07a12;
+  --grid: #e8e6f0; --series2: #8d89a8;
+  --font-text: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-head: "Manrope", "Inter", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #14131f; --panel: #1d1b2c; --ink: #eeecf8; --muted: #a39fbd; --line: #322f47;
+  --accent: #9a90ff; --accent-soft: rgba(154, 144, 255, .2); --lo: #f0935a; --lo-soft: rgba(240, 147, 90, .2);
+  --hi: #4fd1c5; --hi-soft: rgba(79, 209, 197, .18); --good: #5fd08f; --bad: #f07a7a; --warn: #e3b24a;
+  --grid: #2a273d; --series2: #7d7999; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #14131f; --panel: #1d1b2c; --ink: #eeecf8; --muted: #a39fbd; --line: #322f47;
+  --accent: #9a90ff; --accent-soft: rgba(154, 144, 255, .2); --lo: #f0935a; --lo-soft: rgba(240, 147, 90, .2);
+  --hi: #4fd1c5; --hi-soft: rgba(79, 209, 197, .18); --good: #5fd08f; --bad: #f07a7a; --warn: #e3b24a;
+  --grid: #2a273d; --series2: #7d7999; color-scheme: dark }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font-text); padding-block: 20px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1280px; margin: 0 auto; display: grid; gap: 20px; }
+header h1 { font: 700 24px/1.2 var(--font-head); margin: 0 0 6px; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); max-width: 72ch; }
+.cols { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 980px) { .cols { grid-template-columns: 340px minmax(0, 1fr); align-items: start; }
+  .controls { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; } }
+.controls, .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.controls { padding: 14px 16px; display: grid; gap: 16px; }
+.group h2, .card h2 { font: 700 15px/1.3 var(--font-head); margin: 0; }
+.group { display: grid; gap: 10px; }
+.group .note { color: var(--muted); font-size: 12.5px; margin: -4px 0 0; }
+.ctl { display: grid; gap: 2px; }
+.ctl .top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.ctl .top b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.ctl .hint { color: var(--muted); font-size: 12px; }
+input[type=range] { width: 100%; accent-color: var(--accent); margin: 2px 0; }
+table.menu { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.menu th { text-align: left; font-weight: 500; color: var(--muted); padding: 2px 4px 4px 0; font-size: 12px; }
+table.menu td { padding: 2px 4px 2px 0; }
+table.menu input { width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; min-width: 0; }
+table.menu td.q { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.menu .n { width: 64px; } table.menu .x { width: 26px; }
+button { font: 500 13px var(--font-text); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+button.x { padding: 3px 7px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+label.chk { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+main { display: grid; gap: 20px; min-width: 0; }
+.tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 2px; }
+.tile .k { color: var(--muted); font-size: 12.5px; }
+.tile .v { font: 700 22px/1.2 var(--font-head); font-variant-numeric: tabular-nums; }
+.tile .s { font-size: 12.5px; color: var(--muted); }
+.tile.good .v { color: var(--good); } .tile.bad .v { color: var(--bad); } .tile.warn .v { color: var(--warn); }
+.charts { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+.card { padding: 14px 16px; display: grid; gap: 8px; min-width: 0; align-content: start; }
+.card.wide { grid-column: 1 / -1; }
+.card p { margin: 0; color: var(--muted); font-size: 13px; max-width: 78ch; }
+.card svg { width: 100%; height: auto; display: block; }
+svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.legend i { display: inline-block; width: 14px; height: 4px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+.legend i.box { height: 10px; width: 10px; border-radius: 2px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Калькулятор цены вращения</h1>
+    <p>Все вводные слева можно менять: меню колеса, затраты, риск, условия договора и неизвестные параметры спроса. Графики справа пересчитываются сразу. Значения по умолчанию взяты из документа с моделью; неизвестные параметры условные, пока их не измерил пилот. Все расчёты выполняет один файл модели, сверенный тестами с числами из документа.</p>
+  </header>
+  <div class="cols">
+    <aside class="controls" id="controls" aria-label="Вводные параметры"></aside>
+    <main>
+      <section class="tiles" id="tiles" aria-live="polite"></section>
+      <section class="charts">
+        <div class="card wide"><h2>Коридор цены: какие ограничения его задают</h2>
+          <p>Каждая строка показывает одно ограничение и закрытую им часть шкалы. Допустимая цена лежит в полосе, оставшейся открытой у всех строк сразу.</p>
+          <div id="c-corr"></div>
+          <div class="legend"><span><i class="box" style="background:var(--lo-soft)"></i>закрыто снизу</span><span><i class="box" style="background:var(--hi-soft)"></i>закрыто сверху</span><span><i class="box" style="background:var(--accent-soft)"></i>допустимый коридор</span><span><i style="background:var(--accent)"></i>оптимум</span><span><i style="background:var(--ink)"></i>выбранная цена</span></div>
+        </div>
+        <div class="card"><h2>Выгода платформы по цене</h2>
+          <p>Прирост дохода платформы минус плата вендору, в токенах на 100 вращений, которые были бы при цене, равной средней стоимости приза.</p>
+          <div id="c-gain"></div></div>
+        <div class="card"><h2>Риск убыточной серии по её длине</h2>
+          <p>Доля серий, где выручка меньше затрат на призы. Точный расчёт по распределению суммы призов.</p>
+          <div id="c-risk"></div>
+          <div class="legend"><span><i style="background:var(--accent)"></i>выбранная цена</span><span><i style="background:var(--series2)"></i>нижняя граница по риску</span></div></div>
+        <div class="card"><h2>Шанс выигрыша и каннибализация по цене</h2>
+          <p>Шанс выигрыша меняется ступенями: это доля вращений, где приз по меню не дешевле вращения. Каннибализация растёт плавно, когда цена падает.</p>
+          <div id="c-win"></div>
+          <div class="legend"><span><i style="background:var(--hi)"></i>шанс выигрыша</span><span><i style="background:var(--lo)"></i>доля каннибализации</span></div></div>
+        <div class="card"><h2>Нижняя граница цены по μ и длине серии</h2>
+          <p>В клетке граница по риску серии в токенах. Чем выше затраты и короче серия, тем дороже должно быть вращение. Серые клетки: граница выше средней стоимости приза, цены нет.</p>
+          <div id="c-hm0"></div></div>
+        <div class="card"><h2>Оптимальная цена по φ и эластичности</h2>
+          <p>В клетке оптимальная цена при этих значениях сервисной каннибализации φ и эластичности спроса ε. Серые клетки: платформа в минусе при любой допустимой цене.</p>
+          <div id="c-hm1"></div></div>
+        <div class="card"><h2>ROI платформы по двум видам каннибализации</h2>
+          <p>В клетке ROI платформы при выбранной цене: её прирост дохода, делённый на плату вендору. Зелёные клетки достигают целевого ROI, красные убыточны.</p>
+          <div id="c-hm2"></div></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script>
+/*
+ * Модель цены вращения колеса призов. Единственный источник расчётов:
+ * калькулятор, тесты и сервис цены используют эти функции.
+ * Названия разделов в комментариях соответствуют разделам документа с моделью.
+ */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.WheelModel = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+  const EPS = 1e-9;
+  // длины серий, для которых хранится распределение суммы призов
+  const SERIES = [1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100];
+
+  // Меню: пункты {p: цена по меню, w: вес} -> цены P и шансы Q (сумма 1)
+  function normalize(items) {
+    const its = items.filter((i) => i.p >= 1 && i.w > 0);
+    const W = its.reduce((s, i) => s + i.w, 0) || 1;
+    return { P: its.map((i) => Math.round(i.p)), Q: its.map((i) => i.w / W) };
+  }
+  // «Меню-пример и стоимость приза»: EV = Σ q_i p_i, σ_p, CV
+  function stats(P, Q) {
+    const EV = P.reduce((s, p, j) => s + p * Q[j], 0);
+    const sd = Math.sqrt(Math.max(0, P.reduce((s, p, j) => s + p * p * Q[j], 0) - EV * EV));
+    return { EV, sd, CV: sd / EV, maxP: Math.max(...P) };
+  }
+  // «Риск серии»: точное распределение суммы призов за N вращений (свёртка).
+  // Возвращает для каждой длины серии хвостовые суммы: tail[N][x] = Pr(P_N >= x)
+  function buildTails(P, Q) {
+    const maxP = Math.max(...P), keep = new Set(SERIES), tails = {};
+    let cur = new Float64Array(1); cur[0] = 1;
+    for (let n = 1; n <= SERIES[SERIES.length - 1]; n++) {
+      const nx = new Float64Array(cur.length + maxP);
+      for (let j = 0; j < P.length; j++) {
+        const p = P[j], q = Q[j]; if (!q) continue;
+        for (let x = 0; x < cur.length; x++) { const c = cur[x]; if (c) nx[x + p] += c * q; }
+      }
+      cur = nx;
+      if (keep.has(n)) {
+        const t = new Float64Array(cur.length + 1); let acc = 0;
+        for (let x = cur.length - 1; x >= 0; x--) { acc += cur[x]; t[x] = acc; }
+        tails[n] = t;
+      }
+    }
+    return tails;
+  }
+  // «Что считать убытком»: Pr(N·S < μ·P_N) = Pr(P_N > N·S/μ)
+  function lossProb(tails, S, N, mu) {
+    const t = tails[N]; if (!t) throw new Error('Нет распределения для серии длиной ' + N);
+    const x = Math.floor(N * S / mu + EPS) + 1;
+    return x >= t.length ? 0 : x <= 0 ? 1 : t[x];
+  }
+  // «Нижняя граница цены», риск серии: наименьшая S с Pr(убыток за N) <= α
+  function riskFloor(tails, N, mu, alpha, maxP) {
+    for (let S = 1; S <= maxP; S++) if (lossProb(tails, S, N, mu) <= alpha) return S;
+    return maxP;
+  }
+  // «Нижняя граница цены», плюс в среднем: (μ + δ)·EV
+  const avgFloor = (mu, delta, EV) => (mu + delta) * EV;
+  // «Нижняя граница цены», защита меню: max q_i p_i
+  const menuGuard = (P, Q) => Math.max(...P.map((p, j) => p * Q[j]));
+  // «Задача оптимизации», шанс выигрыша: w(S) = Σ q_i по p_i >= S
+  const winChance = (P, Q, S) => P.reduce((s, p, j) => s + (p >= S ? Q[j] : 0), 0);
+  // наибольшая цена, при которой шанс выигрыша не ниже wmin (Infinity, если ограничения нет)
+  function winCeiling(P, Q, wmin) {
+    if (!(wmin > 0)) return Infinity;
+    let best = 0; for (const p of P) if (winChance(P, Q, p) >= wmin - EPS && p > best) best = p;
+    return best;
+  }
+  // «Каннибализация меню»: c(k) = c0 + φ/k
+  const cannibalization = (c0, phi, EV, S) => Math.min(1, c0 + phi * EV / S);
+  // «Границы и оптимум»: безубыточность k_be = σφ / (σ(1−c0) − f)
+  function breakEvenK(e) { const a = e.sigma * (1 - e.c0) - e.f; return e.phi <= 0 ? 0 : a > 0 ? e.sigma * e.phi / a : Infinity; }
+  // «Границы и оптимум»: граница по ROI k_ρ = σφ / (σ(1−c0) − ρf)
+  function roiFloorK(e) { const d = e.sigma * (1 - e.c0) - e.rho * e.f; return e.phi <= 0 ? 0 : d > 0 ? e.sigma * e.phi / d : Infinity; }
+  // «Границы и оптимум»: оптимум без ограничений k* = ε/(ε−1) · k_be при ε > 1
+  function optimumK(e) { return e.eps > 1 ? e.eps / (e.eps - 1) * breakEvenK(e) : Infinity; }
+  // спрос V(k) = k^(−ε) в долях V1, но не больше ёмкости модели (load = V1 / V_cap)
+  const volume = (S, EV, eps, load) => Math.min(Math.pow(S / EV, -eps), 1 / (load || EPS));
+  // «Очередь модели»: цена, при которой спрос равен ёмкости, k_cap = load^(1/ε)
+  const capacityPrice = (EV, eps, load) => EV * Math.pow(load, 1 / eps);
+  // «Границы и оптимум»: выгода платформы на 100 вращений при цене EV
+  function gain(S, EV, e) { return 100 * volume(S, EV, e.eps, e.load) * (S * (e.sigma * (1 - e.c0) - e.f) - e.sigma * e.phi * EV); }
+  // ROI платформы: прирост её дохода, делённый на плату вендору
+  function roi(S, EV, e) { const k = S / EV; return e.f > 0 ? e.sigma * (k * (1 - e.c0) - e.phi) / (e.f * k) : Infinity; }
+
+  const cache = { key: '', tails: null };
+  // всё, что зависит только от меню, затрат и риска
+  function base(p) {
+    const { P, Q } = normalize(p.items);
+    const key = P.join(',') + '|' + Q.map((q) => q.toFixed(9)).join(',');
+    if (key !== cache.key) { cache.tails = buildTails(P, Q); cache.key = key; }
+    const s = stats(P, Q), tails = cache.tails;
+    return { P, Q, tails, EV: s.EV, sd: s.sd, CV: s.CV, maxP: s.maxP,
+      bMenu: menuGuard(P, Q), bAvg: avgFloor(p.mu, p.delta, s.EV),
+      bRisk: riskFloor(tails, p.Nh, p.mu, p.alpha, s.maxP), Sw: winCeiling(P, Q, p.wmin) };
+  }
+  // «Задача оптимизации»: коридор [S_lo, S_hi] и цена с наибольшей выгодой платформы в нём
+  function solve(b, e) {
+    const bRoi = roiFloorK(e) * b.EV;
+    const lo0 = Math.ceil(Math.max(b.bMenu, b.bAvg, b.bRisk) - EPS);      // без требования к ROI
+    const lo = Math.ceil(Math.max(lo0, bRoi) - EPS), hi = Math.floor(Math.min(b.EV, b.Sw) + EPS);
+    const feasible = lo <= hi; let opt = NaN, optG = NaN;
+    for (let S = feasible ? lo : lo0; S <= hi; S++) { const g = gain(S, b.EV, e); if (!(g <= optG + EPS)) { opt = S; optG = g; } }
+    return { bRoi, lo, hi, lo0, feasible, opt, optG, capS: capacityPrice(b.EV, e.eps, e.load) };
+  }
+  // «Расчёт цены для любой модели»: S(k) = min(S_max, max(S_min, round(k·EV)))
+  // b — результат base(); возвращает цену, границы и то, какая граница сработала
+  function priceForK(b, k) {
+    const lo = Math.ceil(Math.max(b.bMenu, b.bAvg, b.bRisk) - EPS), hi = Math.floor(Math.min(b.EV, b.Sw) + EPS);
+    const raw = Math.round(k * b.EV), feasible = lo <= hi;
+    const S = feasible ? Math.min(hi, Math.max(lo, raw)) : NaN;
+    const floorBy = b.bRisk >= b.bAvg - EPS && b.bRisk >= b.bMenu - EPS ? 'risk' : b.bAvg >= b.bMenu ? 'avg' : 'menu';
+    return { S, raw, lo, hi, feasible, floorBy, bound: !feasible ? 'none' : raw < lo ? 'min' : raw > hi ? 'max' : '', kEff: S / b.EV };
+  }
+  // «Валидатор колеса»: правила, которые проверяются по меню и шансам.
+  // Роль пункта задаётся полем role ('consolation' | 'jackpot'); без него
+  // утешительным считается самый дешёвый пункт, джекпотом самый дорогой.
+  const LIMITS = { consolationMin: 0.20, jackpotShareMax: 0.25, cvMax: 2.0 };
+  function validate(items, b, lim) {
+    const L = Object.assign({}, LIMITS, lim), its = items.filter((i) => i.p >= 1 && i.w > 0);
+    const W = its.reduce((s, i) => s + i.w, 0) || 1, ps = its.map((i) => Math.round(i.p));
+    const pMin = Math.min(...ps), pMax = Math.max(...ps);
+    const hasC = its.some((i) => i.role === 'consolation'), hasJ = its.some((i) => i.role === 'jackpot');
+    let consolation = 0, jackpot = 0;
+    its.forEach((i, j) => {
+      if (hasC ? i.role === 'consolation' : ps[j] === pMin) consolation += i.w / W;
+      if (hasJ ? i.role === 'jackpot' : ps[j] === pMax) jackpot += ps[j] * i.w / W;
+    });
+    const jackpotShare = jackpot / b.EV, errors = [];
+    if (consolation < L.consolationMin - EPS) errors.push('consolation');
+    if (jackpotShare > L.jackpotShareMax + EPS) errors.push('jackpot');
+    if (b.CV > L.cvMax + EPS) errors.push('cv');
+    if (!priceForK(b, 1).feasible) errors.push('price');
+    return { ok: errors.length === 0, consolation, jackpotShare, cv: b.CV, errors };
+  }
+  // полный расчёт. Доли передаются числами от 0 до 1: alpha, f, wmin
+  function evaluate(p) {
+    const b = base(p), e = { sigma: p.sigma, f: p.f, rho: p.rho, c0: p.c0, phi: p.phi, eps: p.eps, load: p.load };
+    return Object.assign({}, b, solve(b, e), { econ: e });
+  }
+
+  return { SERIES, normalize, stats, buildTails, lossProb, riskFloor, avgFloor, menuGuard, winChance, winCeiling,
+    cannibalization, breakEvenK, roiFloorK, optimumK, volume, capacityPrice, gain, roi, base, solve, evaluate, priceForK, validate, LIMITS };
+});
+
+</script>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = (v, d = 0) => (isFinite(v) ? v.toFixed(d).replace('.', ',') : '∞');
+const pct = (v, d = 0) => fmt(v * 100, d) + '%';
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+const st = {
+  items: [
+    { t: 'Спасибо в чат', p: 5, w: 22 }, { t: 'Воздушный поцелуй', p: 15, w: 20 }, { t: 'Комплимент зрителю', p: 20, w: 17 },
+    { t: 'Ответ на вопрос', p: 40, w: 13 }, { t: 'Песня (куплет)', p: 60, w: 11 }, { t: 'Танец, 1 минута', p: 100, w: 9 },
+    { t: 'Смена образа', p: 200, w: 6 }, { t: 'Джекпот', p: 500, w: 2 }
+  ],
+  mu: 0.4, delta: 0.1, alpha: 5, Nh: 30, wmin: 0, sigma: 0.4, f: 5, rho: 3, c0: 0.2, phi: 0.3, eps: 1.5, load: 0.5, S: 50, auto: true
+};
+
+// Готовые меню: те же, что в menus.example.json и в документе
+const PRESETS = {
+  example: { n: 'Меню-пример', items: [[ 'Спасибо в чат', 5, 22 ], [ 'Воздушный поцелуй', 15, 20 ], [ 'Комплимент зрителю', 20, 17 ], [ 'Ответ на вопрос', 40, 13 ],
+    [ 'Песня (куплет)', 60, 11 ], [ 'Танец, 1 минута', 100, 9 ], [ 'Смена образа', 200, 6 ], [ 'Джекпот', 500, 2 ]] },
+  expensive: { n: 'Дорогое меню', items: [[ 'Пункт 1', 20, 22 ], [ 'Пункт 2', 50, 20 ], [ 'Пункт 3', 80, 17 ], [ 'Пункт 4', 150, 13 ],
+    [ 'Пункт 5', 250, 11 ], [ 'Пункт 6', 400, 9 ], [ 'Пункт 7', 700, 6 ], [ 'Джекпот', 1500, 2 ]] },
+  flat: { n: 'Дешёвое ровное меню', items: [[ 'Пункт 1', 5, 25 ], [ 'Пункт 2', 10, 25 ], [ 'Пункт 3', 15, 20 ], [ 'Пункт 4', 20, 15 ], [ 'Пункт 5', 30, 10 ], [ 'Пункт 6', 50, 5 ]] },
+  jackpot: { n: 'Редкий большой джекпот', items: [[ 'Пункт 1', 5, 30 ], [ 'Пункт 2', 10, 30 ], [ 'Пункт 3', 20, 25 ], [ 'Пункт 4', 50, 14 ], [ 'Джекпот', 2000, 1 ]] }
+};
+const presetItems = (key) => PRESETS[key].items.map(([t, p, w]) => ({ t, p, w }));
+// адрес этой страницы для ссылок: внутри оболочки claude.ai — адрес артефакта, иначе текущий адрес
+const ARTIFACT_URL = 'https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e';
+let menuKey = 'example';
+
+const GROUPS = [
+  { h: 'Затраты и риск', note: 'Задаёт клиент платформы и вендор.', c: [
+    { k: 'mu', n: 'μ, доля затрат в цене меню', min: 0.1, max: 1, step: 0.01, d: 2, hint: 'Во сколько обходится приз относительно его цены по меню' },
+    { k: 'delta', n: 'δ, запас над μ в среднем', min: 0, max: 0.3, step: 0.01, d: 2 },
+    { k: 'alpha', n: 'α, допустимая доля убыточных серий', min: 1, max: 20, step: 1, d: 0, suf: '%' },
+    { k: 'Nh', n: 'Длина серии для проверки риска', min: 5, max: 100, step: 5, d: 0, hint: 'Примерно столько вращений за один эфир' } ] },
+  { h: 'Зритель', c: [
+    { k: 'wmin', n: 'Минимальный шанс выигрыша', min: 0, max: 60, step: 1, d: 0, suf: '%', hint: '0% значит, что ограничения нет' } ] },
+  { h: 'Платформа и договор', c: [
+    { k: 'sigma', n: 'σ, доля платформы в токенах', min: 0.1, max: 0.7, step: 0.01, d: 2 },
+    { k: 'f', n: 'f, плата вендору от выручки колеса', min: 0, max: 15, step: 0.5, d: 1, suf: '%' },
+    { k: 'rho', n: 'ρ, целевой ROI платформы', min: 1, max: 6, step: 0.5, d: 1 } ] },
+  { h: 'Спрос и каннибализация', note: 'Неизвестные: их измеряет только пилот.', c: [
+    { k: 'c0', n: 'c0, бюджетная каннибализация', min: 0, max: 0.6, step: 0.01, d: 2 },
+    { k: 'phi', n: 'φ, сервисная каннибализация', min: 0, max: 0.8, step: 0.01, d: 2 },
+    { k: 'eps', n: 'ε, эластичность спроса по цене', min: 0.3, max: 4, step: 0.1, d: 1, hint: 'Ниже 1 значит, что зрителям почти всё равно, сколько стоит вращение' },
+    { k: 'load', n: 'Спрос к ёмкости модели', min: 0.3, max: 3, step: 0.1, d: 1, suf: '×', hint: 'Желающих при цене, равной средней стоимости приза, к числу вращений, которое модель успевает выполнить' } ] }
+];
+
+// ---------- расчёты: всё считает WheelModel (model.js), здесь только связка с ползунками ----------
+const M = WheelModel, NKEEP = M.SERIES;
+let cur = null;
+const econ = (o) => Object.assign({ sigma: st.sigma, f: st.f / 100, rho: st.rho, c0: st.c0, phi: st.phi, eps: st.eps, load: st.load }, o);
+const loss = (S, N, mu) => M.lossProb(cur.tails, S, N, mu);
+const riskFloor = (N, mu, alpha, maxP) => M.riskFloor(cur.tails, N, mu, alpha, maxP);
+function model() {
+  const m = M.evaluate({ items: st.items, mu: st.mu, delta: st.delta, alpha: st.alpha / 100, Nh: st.Nh, wmin: st.wmin / 100,
+    sigma: st.sigma, f: st.f / 100, rho: st.rho, c0: st.c0, phi: st.phi, eps: st.eps, load: st.load });
+  cur = m; m.alpha = st.alpha / 100; m.f = st.f / 100; m.wmin = st.wmin / 100;
+  m.win = (S) => M.winChance(m.P, m.Q, S); m.gain = (S) => M.gain(S, m.EV, m.econ); m.roi = (S) => M.roi(S, m.EV, m.econ);
+  m.cann = (S) => M.cannibalization(st.c0, st.phi, m.EV, S);
+  return m;
+}
+const solve = (m, c0, phi, eps) => M.solve(m, econ({ c0, phi, eps }));
+
+// ---------- графики ----------
+let W = 640;
+function frame(H, body, label) { return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${body}</svg>`; }
+function scale(d0, d1, r0, r1) { return (v) => r0 + (v - d0) / (d1 - d0) * (r1 - r0); }
+function niceTicks(a, b, n = 5) { const raw = (b - a) / n, mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
+  const step = (r < 1.5 ? 1 : r < 3.5 ? 2 : r < 7.5 ? 5 : 10) * mag; const out = [];
+  for (let v = Math.ceil(a / step) * step; v <= b + 1e-9; v += step) out.push(Math.abs(v) < 1e-9 ? 0 : v); return out; }
+const T = (x, y, s, o = {}) => `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="${o.size || 11}" fill="var(--${o.c || 'muted'})" text-anchor="${o.a || 'start'}" font-weight="${o.w || 400}">${esc(s)}</text>`;
+const L = (x1, y1, x2, y2, c, o = {}) => `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--${c})" stroke-width="${o.w || 1}" ${o.dash ? `stroke-dasharray="${o.dash}"` : ''} fill="none"/>`;
+const R = (x, y, w, h, fill, o = {}) => w <= 0 || h <= 0 ? '' : `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" rx="${o.rx || 0}" ${o.op != null ? `fill-opacity="${o.op}"` : ''}/>`;
+const path = (pts, c, w = 2) => `<path d="${pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('')}" stroke="var(--${c})" stroke-width="${w}" fill="none" stroke-linejoin="round"/>`;
+function markers(m, X, y0, y1) { let s = '';
+  if (isFinite(m.opt)) s += L(X(m.opt), y0, X(m.opt), y1, 'accent', { w: 2 }) + T(X(m.opt), y0 - 5, 'оптимум ' + m.opt, { c: 'accent', a: 'middle', w: 600 });
+  if (st.S !== m.opt) s += L(X(st.S), y0, X(st.S), y1, 'ink', { w: 1.5, dash: '4 3' }) + T(X(st.S), y1 + 26, 'выбрано ' + st.S, { c: 'ink', a: 'middle', w: 600 });
+  return s; }
+function xAxis(X, x0, x1, y, title) { let s = ''; for (const v of niceTicks(x0, x1, 7)) s += T(X(v), y + 13, fmt(v), { a: 'middle' });
+  return s + T(W - 12, y + 40, title, { a: 'end' }); }
+function yAxis(Y, y0, y1, xl, xr, suf = '', d = 0) { let s = ''; for (const v of niceTicks(y0, y1, 5)) s += L(xl, Y(v), xr, Y(v), v === 0 ? 'series2' : 'grid') + T(xl - 6, Y(v) + 4, fmt(v, d) + suf, { a: 'end' }); return s; }
+function xMax(m) { return Math.ceil(Math.max(m.EV * 1.3, st.S * 1.1, 20) / 5) * 5; }
+
+function drawCorridor(m) {
+  W = 860; const x1 = xMax(m), xl = 236, xr = W - 16, X = scale(0, x1, xl, xr), cx = (v) => clamp(X(v), xl, xr);
+  const rows = [
+    { n: 'Защита меню', v: m.bMenu, lo: 1 }, { n: 'Плюс в среднем', v: m.bAvg, lo: 1 }, { n: 'Риск серии', v: m.bRisk, lo: 1 },
+    { n: 'ROI платформы не ниже ' + fmt(st.rho, 1), v: m.bRoi, lo: 1 },
+    { n: 'Не дороже меню', v: m.EV, lo: 0 }, { n: 'Шанс выигрыша не ниже ' + st.wmin + '%', v: m.Sw, lo: 0 } ];
+  const top = 34, rh = 26, bot = top + rows.length * rh; let s = '';
+  if (m.feasible) s += R(X(m.lo), top - 4, X(m.hi) - X(m.lo) || 2, bot - top + 4, 'var(--accent-soft)', { rx: 3 });
+  rows.forEach((r, i) => { const y = top + i * rh + rh / 2;
+    s += T(8, y + 4, r.n, { c: 'ink', size: 11.5 }) + L(xl, y, xr, y, 'grid');
+    const inf = !isFinite(r.v), over = r.v > x1;
+    if (r.lo) { s += R(xl, y - 5, cx(inf ? x1 : r.v) - xl, 10, 'var(--lo-soft)', { rx: 2 });
+      if (inf) s += T(xr - 4, y - 8, 'недостижимо', { c: 'lo', a: 'end', w: 600 });
+      else s += L(cx(r.v), y - 8, cx(r.v), y + 8, 'lo', { w: 2 }) + T(cx(r.v) + (over ? -5 : 5), y - 7, 'от ' + fmt(Math.ceil(r.v - 1e-9)), { c: 'lo', a: over ? 'end' : 'start', w: 600 });
+    } else if (inf) s += T(xr - 4, y - 7, 'нет ограничения', { a: 'end' });
+    else { s += R(cx(r.v), y - 5, xr - cx(r.v), 10, 'var(--hi-soft)', { rx: 2 }) + L(cx(r.v), y - 8, cx(r.v), y + 8, 'hi', { w: 2 })
+      + T(cx(r.v) - 5, y - 7, 'до ' + fmt(Math.floor(r.v + 1e-9)), { c: 'hi', a: 'end', w: 600 }); } });
+  s += markers(m, X, top - 6, bot) + xAxis(X, 0, x1, bot, 'цена вращения, токены');
+  if (!m.feasible) s += T((xl + xr) / 2, bot + 40, 'Допустимой цены нет: нижняя граница ' + (isFinite(m.lo) ? m.lo : '∞') + ' выше верхней ' + m.hi, { c: 'bad', a: 'middle', w: 600, size: 12 });
+  $('#c-corr').innerHTML = frame(bot + 48, s, 'Коридор допустимой цены вращения');
+}
+function drawGain(m) {
+  W = 470; const x1 = xMax(m), x0 = Math.max(2, Math.floor(m.bMenu / 2)), xl = 52, xr = W - 16, top = 26, bot = 250, pts = [];
+  for (let S = x0; S <= x1; S += 0.5) pts.push([S, m.gain(S)]);
+  const ys = pts.map((p) => p[1]).filter((v) => v > -1e5), ymax = Math.max(10, ...ys), ymin = Math.min(0, Math.max(-ymax * 1.2, Math.min(...ys)));
+  const X = scale(x0, x1, xl, xr), Y = scale(ymin, ymax * 1.08, bot, top);
+  let s = yAxis(Y, ymin, ymax * 1.08, xl, xr);
+  if (m.feasible) s += R(X(m.lo), top, X(m.hi) - X(m.lo) || 2, bot - top, 'var(--accent-soft)');
+  s += path(pts.map((p) => [X(p[0]), clamp(Y(p[1]), top, bot)]), 'accent', 2.5);
+  if (m.capS > x0 && m.capS < x1) s += L(X(m.capS), top, X(m.capS), bot, 'series2', { dash: '2 3' }) + T(X(m.capS) + 4, bot - 6, 'спрос равен ёмкости');
+  s += markers(m, X, top, bot) + xAxis(X, x0, x1, bot, 'цена вращения, токены');
+  $('#c-gain').innerHTML = frame(bot + 48, s, 'Выгода платформы в зависимости от цены вращения');
+}
+function drawRisk(m) {
+  W = 470; const xl = 52, xr = W - 16, top = 20, bot = 250, X = scale(0, 100, xl, xr);
+  const a = NKEEP.map((n) => [n, loss(st.S, n, st.mu) * 100]), b = NKEEP.map((n) => [n, loss(m.bRisk, n, st.mu) * 100]);
+  const ymax = Math.max(10, st.alpha * 1.6, ...a.map((p) => p[1]), ...b.map((p) => p[1])) * 1.05, Y = scale(0, ymax, bot, top);
+  let s = yAxis(Y, 0, ymax, xl, xr, '%');
+  s += L(xl, Y(st.alpha), xr, Y(st.alpha), 'bad', { dash: '4 3' }) + T(xr, Y(st.alpha) - 5, 'допустимый риск ' + st.alpha + '%', { c: 'bad', a: 'end' });
+  s += L(X(st.Nh), top, X(st.Nh), bot, 'series2', { dash: '4 3' }) + T(X(st.Nh) + 4, top + 10, 'проверка на ' + st.Nh);
+  if (m.bRisk !== st.S) s += path(b.map((p) => [X(p[0]), Y(p[1])]), 'series2', 1.5) ;
+  s += path(a.map((p) => [X(p[0]), Y(p[1])]), 'accent', 2.5);
+  s += xAxis(X, 0, 100, bot, 'вращений в серии');
+  $('#c-risk').innerHTML = frame(bot + 48, s, 'Доля убыточных серий по длине серии');
+}
+function drawWin(m) {
+  W = 470; const x1 = xMax(m), x0 = 1, xl = 52, xr = W - 16, top = 20, bot = 250, X = scale(x0, x1, xl, xr), Y = scale(0, 100, bot, top);
+  let s = yAxis(Y, 0, 100, xl, xr, '%'); const wp = [], cp = [];
+  for (let S = x0; S <= x1; S++) { const w = m.win(S) * 100; wp.push([X(S - 0.5 < x0 ? x0 : S - 0.5), Y(w)], [X(Math.min(x1, S + 0.5)), Y(w)]); cp.push([X(S), Y(m.cann(S) * 100)]); }
+  if (m.feasible) s += R(X(m.lo), top, X(m.hi) - X(m.lo) || 2, bot - top, 'var(--accent-soft)');
+  if (st.wmin > 0) s += L(xl, Y(st.wmin), xr, Y(st.wmin), 'hi', { dash: '4 3' }) + T(xr, Y(st.wmin) - 5, 'минимум ' + st.wmin + '%', { c: 'hi', a: 'end' });
+  s += path(cp, 'lo', 2) + path(wp, 'hi', 2.5) + markers(m, X, top, bot) + xAxis(X, x0, x1, bot, 'цена вращения, токены');
+  $('#c-win').innerHTML = frame(bot + 48, s, 'Шанс выигрыша и доля каннибализации по цене');
+}
+function heat(el, label, xs, ys, xn, yn, cell, curX, curY, dx, dy) {
+  W = 470; const xl = 44, top = 8, cw = (W - xl - 8) / xs.length, ch = 24, bot = top + ys.length * ch; let s = '';
+  ys.forEach((yv, r) => { const y = top + (ys.length - 1 - r) * ch; s += T(xl - 8, y + ch / 2 + 4, fmt(yv, dy), { a: 'end' });
+    xs.forEach((xv, c) => { const o = cell(xv, yv), x = xl + c * cw;
+      s += R(x + 1, y + 1, cw - 2, ch - 2, o.fill, { rx: 3, op: o.op }) + T(x + cw / 2, y + ch / 2 + 4, o.t, { a: 'middle', c: o.c || 'ink', size: 11, w: o.w || 500 }); }); });
+  xs.forEach((xv, c) => { s += T(xl + c * cw + cw / 2, bot + 14, fmt(xv, dx), { a: 'middle' }); });
+  const near = (arr, v) => arr.reduce((b, a, i) => (Math.abs(a - v) < Math.abs(arr[b] - v) ? i : b), 0);
+  const ci = near(xs, curX), ri = near(ys, curY);
+  s += `<rect x="${(xl + ci * cw).toFixed(1)}" y="${(top + (ys.length - 1 - ri) * ch).toFixed(1)}" width="${cw.toFixed(1)}" height="${ch}" fill="none" stroke="var(--ink)" stroke-width="2.5" rx="4"/>`;
+  s += T(W - 8, bot + 32, '→ ' + xn, { a: 'end' }) + T(8, bot + 32, '↑ ' + yn) + T(8, bot + 48, 'рамка: текущие значения');
+  el.innerHTML = frame(bot + 56, s, label);
+}
+const seq = (a, b, n) => Array.from({ length: n }, (_, i) => a + (b - a) * i / (n - 1));
+function drawHeat0(m) {
+  const mus = seq(0.2, 0.8, 13), ns = [5, 10, 15, 20, 30, 40, 50, 60, 80, 100];
+  heat($('#c-hm0'), 'Нижняя граница цены по μ и длине серии', mus, ns, 'μ, доля затрат в цене меню', 'длина серии', (mu, n) => {
+    const S = riskFloor(n, mu, m.alpha, m.maxP);
+    if (S > m.EV) return { fill: 'var(--series2)', op: 0.28, t: String(S), c: 'muted' };
+    return { fill: 'var(--lo)', op: 0.1 + 0.6 * clamp(S / m.EV, 0, 1), t: String(S) }; }, st.mu, st.Nh, 2, 0);
+}
+function drawHeat1(m) {
+  const xs = seq(0, 0.6, 13), ys = seq(0.5, 3, 11);
+  heat($('#c-hm1'), 'Оптимальная цена по φ и эластичности', xs, ys, 'φ, сервисная каннибализация', 'ε', (phi, eps) => {
+    const r = solve(m, st.c0, phi, eps);
+    if (!isFinite(r.opt)) return { fill: 'var(--series2)', op: 0.28, t: 'нет', c: 'muted' };
+    if (r.optG <= 0) return { fill: 'var(--series2)', op: 0.28, t: String(r.opt), c: 'muted' };
+    const span = Math.max(1, r.hi - r.lo0); return { fill: 'var(--accent)', op: 0.12 + 0.55 * clamp((r.opt - r.lo0) / span, 0, 1), t: String(r.opt) }; }, st.phi, st.eps, 2, 2);
+}
+function drawHeat2(m) {
+  const xs = seq(0, 0.6, 13), ys = seq(0, 0.6, 11);
+  heat($('#c-hm2'), 'ROI платформы по двум видам каннибализации', xs, ys, 'c0, бюджетная каннибализация', 'φ', (c0, phi) => {
+    const roi = M.roi(st.S, m.EV, econ({ c0, phi }));
+    const t = !isFinite(roi) || roi > 99 ? '>99' : fmt(roi, 1);
+    return roi < 1 ? { fill: 'var(--bad)', op: 0.3, t } : roi < st.rho ? { fill: 'var(--warn)', op: 0.28, t } : { fill: 'var(--good)', op: 0.32, t }; }, st.c0, st.phi, 2, 2);
+}
+function drawTiles(m) {
+  const S = st.S, k = S / m.EV, lossS = loss(S, st.Nh, st.mu), roi = m.roi(S), g = m.gain(S);
+  const tiles = [
+    { k: 'Средняя стоимость приза', v: fmt(m.EV, 1), s: 'разброс ' + fmt(m.sd, 1) + ', CV ' + fmt(m.CV, 2) },
+    { k: 'Допустимый коридор', v: m.feasible ? m.lo + '–' + m.hi : 'нет', s: m.feasible ? 'токенов за вращение' : 'ограничения несовместимы', cls: m.feasible ? '' : 'bad' },
+    { k: 'Оптимум для платформы', v: isFinite(m.opt) ? String(m.opt) : 'нет', s: isFinite(m.opt) ? (m.feasible ? 'максимум выгоды в коридоре' : 'без требования к ROI') : 'цены нет', cls: m.optG > 0 ? 'good' : 'bad' },
+    { k: 'Выбранная цена', v: String(S), s: 'k = ' + fmt(k, 2) + ', скидка зрителю ' + pct(Math.max(0, 1 - k)) },
+    { k: 'Шанс выигрыша', v: pct(m.win(S)), s: 'приз по меню не дешевле вращения', cls: m.wmin > 0 && m.win(S) < m.wmin - 1e-9 ? 'bad' : '' },
+    { k: 'Риск серии из ' + st.Nh, v: pct(lossS, lossS < 0.01 ? 2 : 1), s: 'допустимо до ' + st.alpha + '%', cls: lossS <= m.alpha + 1e-9 ? 'good' : 'bad' },
+    { k: 'ROI платформы', v: isFinite(roi) ? fmt(roi, 1) : '∞', s: 'цель ' + fmt(st.rho, 1) + ', каннибализация ' + pct(m.cann(S)), cls: roi >= st.rho ? 'good' : roi >= 1 ? 'warn' : 'bad' },
+    { k: 'Выгода платформы', v: fmt(g, 0), s: 'токенов на 100 вращений', cls: g > 0 ? 'good' : 'bad' } ];
+  $('#tiles').innerHTML = tiles.map((t) => `<div class="tile ${t.cls || ''}"><span class="k">${esc(t.k)}</span><span class="v">${esc(t.v)}</span><span class="s">${esc(t.s)}</span></div>`).join('');
+}
+
+// ---------- панель вводных ----------
+function buildControls() {
+  const box = $('#controls'); let h = `<div class="group"><h2>Цена вращения</h2>
+    <div class="ctl"><div class="top"><span>Выбранная цена, токены</span><b id="v-S"></b></div><input type="range" id="in-S" min="1" max="100" step="1"></div>
+    <label class="chk"><input type="checkbox" id="in-auto"> Держать цену на оптимуме</label></div>
+    <div class="group"><h2>Ссылка на эти настройки</h2><p class="note">В ссылке сохраняются меню и все ползунки. Её можно вставить в документ или отправить.</p>
+    <div class="row"><input id="link" readonly aria-label="Ссылка на текущие настройки" style="flex:1;min-width:0"><button type="button" id="copy">Скопировать</button></div>
+    <div class="row"><span class="note">Готовые меню:</span>${Object.keys(PRESETS).map((k) => `<button type="button" data-preset="${k}">${esc(PRESETS[k].n)}</button>`).join('')}</div></div>
+    <div class="group"><h2>Меню колеса</h2><p class="note">Цена пункта по меню и его вес. Шансы считаются из весов.</p>
+    <table class="menu"><thead><tr><th>Пункт</th><th class="n">Цена</th><th class="n">Вес</th><th>Шанс</th><th class="x"></th></tr></thead><tbody id="menu"></tbody></table>
+    <div class="row"><button type="button" id="add">Добавить пункт</button><button type="button" id="reset">Сбросить всё</button></div></div>`;
+  for (const g of GROUPS) { h += `<div class="group"><h2>${esc(g.h)}</h2>${g.note ? `<p class="note">${esc(g.note)}</p>` : ''}`;
+    for (const c of g.c) h += `<div class="ctl"><div class="top"><label for="in-${c.k}">${esc(c.n)}</label><b id="v-${c.k}"></b></div>
+      <input type="range" id="in-${c.k}" min="${c.min}" max="${c.max}" step="${c.step}">${c.hint ? `<span class="hint">${esc(c.hint)}</span>` : ''}</div>`;
+    h += '</div>'; }
+  box.innerHTML = h;
+  for (const g of GROUPS) for (const c of g.c) $('#in-' + c.k).addEventListener('input', (e) => { st[c.k] = +e.target.value; update(); });
+  $('#in-S').addEventListener('input', (e) => { st.S = +e.target.value; st.auto = false; update(); });
+  $('#in-auto').addEventListener('change', (e) => { st.auto = e.target.checked; update(); });
+  $('#add').addEventListener('click', () => { menuKey = ''; st.items.push({ t: 'Новый пункт', p: 50, w: 5 }); renderMenu(); update(); });
+  $('#reset').addEventListener('click', () => { Object.assign(st, JSON.parse(DEFAULTS)); menuKey = 'example'; renderMenu(); update(); });
+  $('#controls').addEventListener('click', (e) => { const b = e.target.closest('button[data-preset]'); if (!b) return;
+    menuKey = b.dataset.preset; st.items = presetItems(menuKey); st.auto = true; renderMenu(); update(); });
+  $('#copy').addEventListener('click', async () => { const el = $('#link'); el.select();
+    try { await navigator.clipboard.writeText(el.value); $('#copy').textContent = 'Скопировано'; } catch (err) { try { document.execCommand('copy'); $('#copy').textContent = 'Скопировано'; } catch (e2) { $('#copy').textContent = 'Выделено: Ctrl+C'; } }
+    setTimeout(() => { $('#copy').textContent = 'Скопировать'; }, 1500); });
+  $('#menu').addEventListener('input', (e) => { const i = +e.target.dataset.i, k = e.target.dataset.k; if (!k) return;
+    menuKey = ''; st.items[i][k] = k === 't' ? e.target.value : clamp(Math.round(+e.target.value || 0), 0, k === 'p' ? 5000 : 1000); update(); });
+  $('#menu').addEventListener('click', (e) => { const b = e.target.closest('button[data-del]'); if (!b || st.items.length <= 2) return;
+    menuKey = ''; st.items.splice(+b.dataset.del, 1); renderMenu(); update(); });
+  renderMenu();
+}
+function renderMenu() {
+  $('#menu').innerHTML = st.items.map((it, i) => `<tr><td><input id="m-t-${i}" data-i="${i}" data-k="t" value="${esc(it.t)}" aria-label="Название пункта"></td>
+    <td><input id="m-p-${i}" data-i="${i}" data-k="p" type="number" min="1" max="5000" value="${it.p}" aria-label="Цена по меню"></td>
+    <td><input id="m-w-${i}" data-i="${i}" data-k="w" type="number" min="0" max="1000" value="${it.w}" aria-label="Вес"></td>
+    <td class="q" id="m-q-${i}"></td><td><button type="button" class="x" data-del="${i}" aria-label="Удалить пункт">×</button></td></tr>`).join('');
+}
+const DEFAULTS = JSON.stringify(st);
+let raf = 0;
+function update() { cancelAnimationFrame(raf); raf = requestAnimationFrame(render); }
+function render() {
+  let m = model();
+  if (st.auto && isFinite(m.opt)) st.S = m.opt;
+  const sMax = Math.max(60, Math.ceil(m.EV * 1.3 / 5) * 5); st.S = clamp(Math.round(st.S), 1, sMax);
+  const inS = $('#in-S'); inS.max = sMax; inS.value = st.S; $('#v-S').textContent = st.S; $('#in-auto').checked = st.auto;
+  for (const g of GROUPS) for (const c of g.c) { $('#in-' + c.k).value = st[c.k]; $('#v-' + c.k).textContent = fmt(st[c.k], c.d) + (c.suf || ''); }
+  const Wsum = st.items.reduce((s, i) => s + (i.p >= 1 && i.w > 0 ? i.w : 0), 0) || 1;
+  st.items.forEach((it, i) => { const el = $('#m-q-' + i); if (el) el.textContent = it.p >= 1 && it.w > 0 ? pct(it.w / Wsum, 1) : '—'; });
+  syncLink();
+  drawTiles(m); drawCorridor(m); drawGain(m); drawRisk(m); drawWin(m); drawHeat0(m); drawHeat1(m); drawHeat2(m);
+}
+
+// ---------- параметры в ссылке: #menu=jackpot&mu=0.45&S=40 ----------
+// menu — готовое меню (example, expensive, flat, jackpot) или items=цена:вес,цена:вес,…
+// остальные ключи — ползунки (mu, delta, alpha, Nh, wmin, sigma, f, rho, c0, phi, eps, load), S — цена, auto=0|1
+const KEYS = GROUPS.flatMap((g) => g.c);
+const DEF = JSON.parse(DEFAULTS);
+function readParams() {
+  const raw = (location.hash || '').replace(/^#/, '') || (location.search || '').replace(/^\?/, '');
+  if (!raw) return false;
+  const q = new URLSearchParams(raw); let any = false;
+  if (q.has('menu') && PRESETS[q.get('menu')]) { menuKey = q.get('menu'); st.items = presetItems(menuKey); any = true; }
+  if (q.has('items')) {
+    const its = q.get('items').split(',').map((x, i) => { const [p, w, ...t] = x.split(':'); return { t: t.join(':') || 'Пункт ' + (i + 1), p: Math.round(+p), w: Math.round(+w) }; })
+      .filter((i) => i.p >= 1 && i.p <= 5000 && i.w >= 0);
+    if (its.length >= 2) { menuKey = ''; st.items = its; any = true; }
+  }
+  for (const c of KEYS) if (q.has(c.k)) { const v = +q.get(c.k); if (isFinite(v)) { st[c.k] = clamp(v, c.min, c.max); any = true; } }
+  if (q.has('S')) { const v = +q.get('S'); if (isFinite(v)) { st.S = v; st.auto = false; any = true; } }
+  if (q.has('auto')) { st.auto = q.get('auto') !== '0'; any = true; }
+  return any;
+}
+function paramString() {
+  const q = new URLSearchParams();
+  if (menuKey && menuKey !== 'example') q.set('menu', menuKey);
+  else if (!menuKey) q.set('items', st.items.filter((i) => i.p >= 1 && i.w > 0).map((i) => i.p + ':' + i.w).join(','));
+  for (const c of KEYS) if (Math.abs(st[c.k] - DEF[c.k]) > 1e-9) q.set(c.k, String(+st[c.k].toFixed(4)));
+  if (!st.auto) q.set('S', String(st.S));
+  return q.toString().replace(/%3A/gi, ':').replace(/%2C/gi, ',');
+}
+let inFrame = true; try { inFrame = window.self !== window.top; } catch (e) { inFrame = true; }
+function syncLink() {
+  const p = paramString(), base = inFrame || location.protocol === 'about:' ? ARTIFACT_URL : location.href.replace(/[#?].*$/, '');
+  $('#link').value = base + (p ? '#' + p : '');
+  try { if (!inFrame && location.hash.replace(/^#/, '') !== p) history.replaceState(null, '', p ? '#' + p : location.pathname + location.search); } catch (e) {}
+}
+window.addEventListener('hashchange', () => { if (location.hash.replace(/^#/, '') === paramString()) return; Object.assign(st, JSON.parse(DEFAULTS)); menuKey = 'example'; readParams(); renderMenu(); update(); });
+buildControls(); readParams(); renderMenu(); render();
+</script>
