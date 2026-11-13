@@ -26,9 +26,9 @@
 
 ## Как читать графики и где менять параметры
 
-Графики в этом документе показывают срезы при фиксированных параметрах из таблицы ниже. Чтобы увидеть, как картина меняется при других значениях, откройте [интерактивный калькулятор](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e) (страница на claude.ai; та же страница лежит в репозитории как `calc/index.html`, её можно скачать и открыть в браузере): там все параметры вынесены в ползунки, а меню призов можно редактировать. Код калькулятора и модели лежит в папке `calc/` репозитория `devmtsarev/wheel`.
+Графики в этом документе показывают срезы при фиксированных параметрах из таблицы ниже. Чтобы увидеть, как картина меняется при других значениях, откройте [интерактивный калькулятор](https://devmtsarev.github.io/wheel/calc/) на GitHub Pages: там все параметры вынесены в ползунки, а меню призов можно редактировать. Код калькулятора и модели лежит в папке `calc/` репозитория `devmtsarev/wheel`.
 
-Под графиками стоят ссылки «В калькуляторе»: они открывают калькулятор сразу с параметрами этого графика: меню, μ, сценарием каннибализации, ценой. Параметры записаны в самой ссылке, после знака #, например #menu=jackpot&mu=0.45. В калькуляторе есть кнопка «Скопировать», которая даёт такую ссылку на текущие настройки.
+Под графиками стоят ссылки «В калькуляторе»: они открывают калькулятор на GitHub Pages сразу с параметрами этого графика. В ссылке после знака # записаны меню парами «цена:вес» (items) и все параметры: mu, delta, alpha, Nh, wmin, sigma, f, rho, c0, phi, eps, load, а если цена задана, то и S. В калькуляторе есть кнопка «Скопировать», которая даёт такую же ссылку на текущие настройки. Ссылки работают, пока репозиторий публичный и в нём включены GitHub Pages.
 
 Коридор в калькуляторе уже, чем коридор из раздела «Расчёт цены для любой модели»: калькулятор добавляет требование к ROI платформы и шансу выигрыша. На меню-примере это 36–50 вместо 31–50.
 
@@ -146,7 +146,7 @@
 
 Среднюю стоимость поднимают редкие дорогие пункты. Это главное свойство колеса: среднее здесь плохо описывает отдельное вращение.
 
-В калькуляторе: [меню-пример](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e)
+В калькуляторе: [меню-пример](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5)
 
 ### Средняя стоимость приза
 
@@ -266,7 +266,7 @@ N\,S < \mu\, P_N \quad\Longleftrightarrow\quad P_N > \frac{N\,S}{\mu}, \qquad P_
 
 Кривые неровные на коротких сериях. Там исход решают один-два дорогих приза, и вероятность меняется скачками.
 
-В калькуляторе: [цена 31](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#S=31) · [цена 40](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#S=40) · [цена 50](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#S=50)
+В калькуляторе: [цена 31](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5&S=31) · [цена 40](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5&S=40) · [цена 50](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5&S=50)
 
 ### Как считается вероятность
 
@@ -298,7 +298,7 @@ S_{risk} \approx \mu\,EV\left(1 + z_{\alpha}\,\frac{CV}{\sqrt{N_h}}\right), \qqu
 
 Одно распределение обслуживает все цены сразу. Цена вращения не меняет форму кривой, она только сдвигает порог, за которым начинается убыток.
 
-В калькуляторе: [цена 40](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#S=40) · [жёстче риск, α = 2%](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#alpha=2)
+В калькуляторе: [цена 40](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5&S=40) · [жёстче риск, α = 2%](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=2&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5)
 
 ### Как риск уходит со временем
 
@@ -308,7 +308,7 @@ S_{risk} \approx \mu\,EV\left(1 + z_{\alpha}\,\frac{CV}{\sqrt{N_h}}\right), \qqu
 
 Чем выше цена, тем раньше даже неудачная серия выходит в плюс. При цене 31 это происходит к 30-му вращению, при 40 к 10-му, при 50 к 6-му.
 
-В калькуляторе: [цена 31](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#S=31) · [цена 40](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#S=40)
+В калькуляторе: [цена 31](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5&S=31) · [цена 40](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5&S=40)
 
 ### Проверка симуляцией
 
@@ -516,13 +516,13 @@ S_{risk} \approx \mu\,EV\left(1 + z_{\alpha}\,\frac{CV}{\sqrt{N_h}}\right), \qqu
 
 Коридор у каждого меню свой даже при одинаковых параметрах. Его ширину задаёт разброс призов: чем тяжелее хвост меню, тем выше S\_min относительно EV.
 
-В калькуляторе: [меню-пример](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e) · [дорогое](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#menu=expensive) · [дешёвое ровное](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#menu=flat) · [редкий джекпот](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#menu=jackpot)
+В калькуляторе: [меню-пример](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5) · [дорогое](https://devmtsarev.github.io/wheel/calc/#items=20:22,50:20,80:17,150:13,250:11,400:9,700:6,1500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5) · [дешёвое ровное](https://devmtsarev.github.io/wheel/calc/#items=5:25,10:25,15:20,20:15,30:10,50:5&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5) · [редкий джекпот](https://devmtsarev.github.io/wheel/calc/#items=5:30,10:30,20:25,50:14,2000:1&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5)
 
 ![model.js, priceForK · menus.example.json · μ от 0,20 до 0,60 с шагом 0,05](img/07.png)
 
 С ростом μ нижняя граница растёт у всех меню, но с разной скоростью. Меню-пример упирается в потолок около μ = 0,65, меню с редким джекпотом уже при 0,45. Поэтому μ нужно согласовать с платформой до расчёта цен: от него зависит, у каких моделей колесо вообще возможно.
 
-В калькуляторе: [редкий джекпот при μ = 0,45](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#menu=jackpot&mu=0.45) · [меню-пример при μ = 0,6](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#mu=0.6)
+В калькуляторе: [редкий джекпот при μ = 0,45](https://devmtsarev.github.io/wheel/calc/#items=5:30,10:30,20:25,50:14,2000:1&mu=0.45&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5) · [меню-пример при μ = 0,6](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.6&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5)
 
 ### Пакетный расчёт
 
@@ -545,7 +545,7 @@ node price.js menus.json --csv    # для табличного редактор
 
 При низкой цене в тяжёлом сценарии каннибализация достигает 100%. Тогда колесо только перекладывает деньги зрителей из меню и попутно отдаёт услуги дешевле.
 
-В калькуляторе: [низкая](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#c0=0.1&phi=0.15) · [средняя](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e) · [высокая](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#c0=0.3&phi=0.45)
+В калькуляторе: [низкая](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.1&phi=0.15&eps=1.5&load=0.5) · [средняя](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5) · [высокая](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.3&phi=0.45&eps=1.5&load=0.5)
 
 ### Два вида каннибализации
 
@@ -600,7 +600,7 @@ c(k) = \frac{c_0\,V S + \varphi\,V\,EV}{V S} = c_0 + \frac{\varphi}{k}
 
 Риск несимметричен. Ошибка «поставили 50, а надо было 40» стоит платформе несколько процентов выгоды, обратная ошибка может оставить её почти без выгоды.
 
-В калькуляторе: [низкая каннибализация](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#c0=0.1&phi=0.15) · [средняя](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e) · [высокая](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#c0=0.3&phi=0.45)
+В калькуляторе: [низкая каннибализация](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.1&phi=0.15&eps=1.5&load=0.5) · [средняя](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5) · [высокая](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.3&phi=0.45&eps=1.5&load=0.5)
 
 ### Выгода платформы
 
@@ -648,7 +648,7 @@ k^{*} = \frac{\varepsilon}{\varepsilon - 1}\,k_{be} \quad \text{при } \vareps
 
 Все три кривые пересекаются около цены 50: объём вращений нормирован на эту точку. Точная формула даёт оптимум 37,3 токена при ε = 2,5, на графике с шагом 2 токена максимум виден у 38.
 
-В калькуляторе: [ε = 0,8](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#eps=0.8) · [ε = 1,5](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e) · [ε = 2,5](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#eps=2.5)
+В калькуляторе: [ε = 0,8](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=0.8&load=0.5) · [ε = 1,5](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5) · [ε = 2,5](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=2.5&load=0.5)
 
 ### Итоговое правило цены
 
@@ -739,7 +739,7 @@ W(k) = V_1\,EV\,k^{\,1-\varepsilon}, \qquad \frac{W(40)}{W(50)} = \left(\frac{50
 
 Паузы в середине эфира возникают, когда в очереди уже пять призов. Самая длинная из них длится с 56-й по 70-ю минуту: очередь всё это время остаётся полной.
 
-В калькуляторе: [спрос вдвое выше ёмкости модели](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#load=2)
+В калькуляторе: [спрос вдвое выше ёмкости модели](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.4&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=2)
 
 ### Правило допуска
 
@@ -849,7 +849,7 @@ V_1\,k^{-\varepsilon} \le V_{cap} \quad\Longleftrightarrow\quad k \ge k_{cap} = 
 
 Каждые 0,05 к μ добавляют к нижней границе около 4 токенов. Граница по риску всегда строже границы «плюс в среднем», потому что разброс на этом меню велик.
 
-В калькуляторе: [μ = 0,3](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#mu=0.3) · [μ = 0,5](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#mu=0.5) · [μ = 0,6](https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e#mu=0.6)
+В калькуляторе: [μ = 0,3](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.3&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5) · [μ = 0,5](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.5&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5) · [μ = 0,6](https://devmtsarev.github.io/wheel/calc/#items=5:22,15:20,20:17,40:13,60:11,100:9,200:6,500:2&mu=0.6&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5)
 
 ### Что значит μ для акций
 

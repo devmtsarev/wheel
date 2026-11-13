@@ -141,8 +141,8 @@ const PRESETS = {
   jackpot: { n: 'Редкий большой джекпот', items: [[ 'Пункт 1', 5, 30 ], [ 'Пункт 2', 10, 30 ], [ 'Пункт 3', 20, 25 ], [ 'Пункт 4', 50, 14 ], [ 'Джекпот', 2000, 1 ]] }
 };
 const presetItems = (key) => PRESETS[key].items.map(([t, p, w]) => ({ t, p, w }));
-// адрес этой страницы для ссылок: внутри оболочки claude.ai — адрес артефакта, иначе текущий адрес
-const ARTIFACT_URL = 'https://claude.ai/artifact/JjF5PyTZUb4cCukm5sVK8e';
+// адрес для ссылок: страница на GitHub Pages; если калькулятор открыт оттуда же или локально — текущий адрес
+const PAGES_URL = 'https://devmtsarev.github.io/wheel/calc/';
 let menuKey = 'example';
 
 const GROUPS = [
@@ -377,19 +377,19 @@ function readParams() {
   return any;
 }
 function paramString() {
-  const q = new URLSearchParams();
-  if (menuKey && menuKey !== 'example') q.set('menu', menuKey);
-  else if (!menuKey) q.set('items', st.items.filter((i) => i.p >= 1 && i.w > 0).map((i) => i.p + ':' + i.w).join(','));
-  for (const c of KEYS) if (Math.abs(st[c.k] - DEF[c.k]) > 1e-9) q.set(c.k, String(+st[c.k].toFixed(4)));
-  if (!st.auto) q.set('S', String(st.S));
-  return q.toString().replace(/%3A/gi, ':').replace(/%2C/gi, ',');
+  // полная ссылка: меню парами «цена:вес» и все ползунки, чтобы условия расчёта читались из самой ссылки
+  const its = st.items.filter((i) => i.p >= 1 && i.w > 0).map((i) => i.p + ':' + i.w).join(',');
+  const parts = ['items=' + its];
+  for (const c of KEYS) parts.push(c.k + '=' + String(+(+st[c.k]).toFixed(4)));
+  if (!st.auto) parts.push('S=' + st.S);
+  return parts.join('&');
 }
 let inFrame = true; try { inFrame = window.self !== window.top; } catch (e) { inFrame = true; }
 function syncLink() {
-  const p = paramString(), base = inFrame || location.protocol === 'about:' ? ARTIFACT_URL : location.href.replace(/[#?].*$/, '');
+  const p = paramString(), base = inFrame || location.protocol !== 'https:' ? PAGES_URL : location.href.replace(/[#?].*$/, '');
   $('#link').value = base + (p ? '#' + p : '');
-  try { if (!inFrame && location.hash.replace(/^#/, '') !== p) history.replaceState(null, '', p ? '#' + p : location.pathname + location.search); } catch (e) {}
+  try { if (!inFrame && decodeURIComponent(location.hash.replace(/^#/, '')) !== p) history.replaceState(null, '', p ? '#' + p : location.pathname + location.search); } catch (e) {}
 }
-window.addEventListener('hashchange', () => { if (location.hash.replace(/^#/, '') === paramString()) return; Object.assign(st, JSON.parse(DEFAULTS)); menuKey = 'example'; readParams(); renderMenu(); update(); });
+window.addEventListener('hashchange', () => { if (decodeURIComponent(location.hash.replace(/^#/, '')) === paramString()) return; Object.assign(st, JSON.parse(DEFAULTS)); menuKey = 'example'; readParams(); renderMenu(); update(); });
 buildControls(); readParams(); renderMenu(); render();
 </script>
