@@ -8,6 +8,7 @@ Serve the repository over localhost (Web Crypto and Web Locks require a secure c
 python3 -m http.server 8774 --bind 127.0.0.1
 ```
 
+- Demo gallery and interactive pricing scenarios: http://127.0.0.1:8774/experience/demos/
 - Player + example host website: http://127.0.0.1:8774/experience/
 - Stream operator overlay: http://127.0.0.1:8774/experience/operator/
 - Separate management dashboard: http://127.0.0.1:8774/experience/manage/
@@ -60,3 +61,8 @@ node --test experience/shared/store.test.mjs
 Open **Edit wheel options** in the operator panel. Operators set aggregate markup and each action’s direct-purchase price, name, short label and colour. They can add/remove actions (1–11 plus no prize). Chances are read-only, automatically calculated and enforced by the store on save; caller-supplied weights are ignored. The preview shows the automatically calculated spin price, average reward value and effective markup. No-prize labels and colour can be customized, but its price is always zero. Cash/token payouts are not supported. These inputs describe direct-purchase prices; this demo does not implement a direct-purchase checkout.
 
 Saving creates a new version and fairness epoch. Old spin records include immutable menu snapshots. A pending animation keeps its original options; the next spin uses the saved menu. A stale editor must reload before saving if another view changed the wheel. Management reflects the active menu and retains removed outcomes in historical distributions. The player balance is visible beside the controls and updates after spins, top-ups and refunds.
+
+
+## Existing API specification
+
+The upstream [`api/README.md`](../api/README.md) and OpenAPI document describe a server reserve/commit flow, signed webhooks, widget tokens and WebSocket updates. This prototype does not call those endpoints or claim to implement their guarantees. Its single local atomic spin transaction stands in for that flow. Production integration must reconcile the new automatic inverse-price inputs (direct prices + overhead, derived price/ppm) with API wheel versions; preserve server-issued price validity, idempotency and payment reservation semantics; and replace local seed storage with server ownership. No secrets belong in the embed.
