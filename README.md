@@ -22,3 +22,13 @@
 - `docs/` — документ с математикой и графиками: `model.md`, страница `index.html`, `model.pdf`.
 
 Страницы работают, пока репозиторий публичный и в Settings → Pages выбрана ветка `main`, папка `/ (root)`.
+
+## Integration & UI prototype
+
+The new [`experience/`](experience/README.md) implements three separate views:
+
+- **Player:** embeddable wheel overlay on a sample host website.
+- **Stream operator:** live prize queue, pause/resume, completion and demo refunds.
+- **Management:** separate dashboard with spending, win rates, reporting, price versions and embed setup.
+
+Run `python3 -m http.server 8774 --bind 127.0.0.1` from the repository and open `http://127.0.0.1:8774/experience/`. The views synchronize in the same browser through local storage. This prototype uses demo tokens and has no production authentication or payment integration.
