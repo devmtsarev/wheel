@@ -24,12 +24,12 @@ No arbitrary price caps are imposed. JavaScript safe-integer and one-in-a-millio
 ## Automated validation
 
 ```sh
-node --test calc/model.test.js experience/shared/store.test.mjs experience/embed/wheel.test.mjs
+node --test calc/model.test.js experience/shared/store.test.mjs experience/embed/wheel.test.mjs experience/shared/variance.test.mjs
 ```
 
-42 tests: 24 original pricing-model regressions, 15 experience/pricing/scenario tests, and 3 embed tests. They cover inverse ratios, dynamic pricing above the former caps, integer/ppm rounding, invalid settings, protected writes, wallet concurrency, old-version refunds/proofs, migrations, no-prize handling, and forged iframe-message rejection. A GitHub Actions workflow runs this command on pushes and pull requests with Node 22.
+46 tests: 24 original pricing-model regressions, 15 experience/pricing/scenario tests, 3 embed tests, and 4 variance tests. They cover inverse ratios, dynamic pricing above the former caps, integer/ppm rounding, invalid settings, protected writes, wallet concurrency, old-version refunds/proofs, migrations, no-prize handling, and forged iframe-message rejection. A GitHub Actions workflow runs this command on pushes and pull requests with Node 22.
 
-Locally the same test callbacks were executed in Node VM contexts through the available Node runtime because no standalone Node executable was installed. All 42 passed. CI independently runs the standard Node test runner.
+Locally the same test callbacks were executed in Node VM contexts through the available Node runtime because no standalone Node executable was installed. The original 42 passed locally and on GitHub Actions. The four additional variance tests pass locally; CI independently runs the standard Node test runner.
 
 ## Browser verification
 
@@ -40,3 +40,23 @@ The player/operator layouts were inspected at the current narrow browser width a
 ## Integration boundary
 
 This is a browser-local demo, not the server implementation of `api/openapi.yaml`. The upstream API specification is preserved. Production needs authenticated viewer/staff sessions, a server-owned ledger/randomness, wallet reserve/commit/reconciliation, signed webhooks, and server events. The new automatic inverse-price policy differs from the original `calc/model.js` model; both remain separately named and tested. Existing Pages settings are not changed, and this PR does not deploy or merge itself.
+
+## Variance audit against the original PDF
+
+Run `node experience/scripts/audit-variance.mjs` (or add `--json`) to reproduce this table from the actual pricing function and scenario definitions. Zero-value no-prize outcomes are retained in both moments and exact convolution; the original calculator's `normalize()` would discard them and must not be used here.
+
+| Distribution | Spin | Mean reward EV | Variance (tokens²) | SD (tokens) | CV | PDF CV ≤ 2 | No prize | 30-spin loss risk* |
+|---|---:|---:|---:|---:|---:|---|---:|---:|
+| Original PDF example | 50 | 50.3000 | 6492.4100 | 80.5755 | 1.6019 | PASS | 0% | 0.0092% |
+| Current evening room | 20 | 16.6661 | 1680.3756 | 40.9924 | 2.4596 | **FAIL** | 21.8060% | 0.1969% |
+| Equal-price actions | 96 | 80.0000 | 1600.0000 | 40.0000 | 0.5000 | PASS | 20.0000% | 0% |
+| Premium menu | 23111 | 17777.6400 | 483948116.0304 | 21998.8208 | 1.2374 | PASS | 20.0005% | approximately 0% |
+| Simple 1:2 ratio | 128 | 106.6665 | 4622.2278 | 67.9870 | 0.6374 | PASS | 20.0001% | 0% |
+
+* Exact convolution under the PDF's illustrative assumptions μ = 0.40 and N = 30, before refunds. The default menu passes its 5% series-loss threshold but fails its separate CV limit. Absolute variance falls from the old example, but relative variance rises because mean reward value falls more. Passing one check is not full PDF validation.
+
+For ideal inverse-price probabilities and no-prize probability L, CV² = (sum(C_i) × sum(1/C_i)) / (n² × (1−L)) − 1. The current action-price spread gives a minimum CV of about 2.1243 even at L = 0. Changing token scale, or simply raising the spin price, cannot make this menu meet CV ≤ 2 while retaining strict inverse pricing. Meeting that rule requires changing the action-price spread/menu or probability policy. The required empty outcome has not been removed or silently altered by the audit.
+
+This is a diagnostic, not a production publication gate: the audit prints FAIL for the default menu and exits normally. CI tests verify the arithmetic and the expected failure, rather than asserting that every demo complies with the PDF. The default remains available for reviewing the requested product behavior.
+
+Intentional departures from the PDF: empty outcomes are now required, and positive aggregate overhead means S > EV instead of the document's S ≤ EV ceiling. The 20% no-prize target is a provisional product choice needed to determine the probability normalization/price, not a deduction from inverse pricing. Remaining PDF safeguards—complete variance/jackpot/consolation validation, queue/time admission, platform spending limits, and direct-price synchronization—are not implemented as production gates.

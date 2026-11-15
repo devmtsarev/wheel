@@ -41,7 +41,7 @@ Run `python3 -m http.server 8774 --bind 127.0.0.1` from the repository and open 
 Open [`experience/demos/`](experience/demos/index.html) for the three-view walkthrough, screenshots and four interactive pricing scenarios. It runs as static files on localhost or GitHub Pages, like the original demo. The pricing sandbox does not alter the active wallet/menu.
 
 ```sh
-node --test calc/model.test.js experience/shared/store.test.mjs experience/embed/wheel.test.mjs
+node --test calc/model.test.js experience/shared/store.test.mjs experience/embed/wheel.test.mjs experience/shared/variance.test.mjs
 ```
 
 See [changes and demo verification](experience/CHANGES.md). The new automatic inverse-price model is separate from the original `calc/` model and the server contract in `api/`; this PR does not implement that backend.
