@@ -1,0 +1,871 @@
+openapi: 3.1.0
+info:
+  title: Prize Wheel API
+  version: 0.3.0
+  description: |
+    API вендорского «колеса призов» для вебкам-платформы.
+
+    Роли: **платформа** (клиент API, держит баланс токенов зрителей), **модель** (исполняет призы,
+    пользуется панелью очереди), **зритель** (крутит колесо в виджете). Вендор не хранит деньги:
+    списание идёт через резерв и подтверждение на стороне платформы (вебхуки `charge.*`).
+
+    Денежные величины — в токенах платформы, целые. Вероятности — в миллионных долях (ppm),
+    сумма по колесу ровно 1 000 000. Время — RFC 3339, UTC.
+
+    Цены считает модель из `calc/model.js` (формула S(k) = min(⌊EV⌋, max(S_min, round(k·EV)))).
+    Значения по умолчанию: k = [1.0, 0.8], μ = 0.40, δ = 0.10, α = 0.05, N_h = 30.
+    Правила валидатора по умолчанию: утешительные ≥ 20%, джекпот ≤ 25% EV, CV ≤ 2.0, S_min ≤ EV.
+    Клиент платформы может ужесточить пороги, но не ослабить.
+  contact:
+    name: Wheel vendor
+  license:
+    name: Proprietary
+    url: https://wheel.example.com/license
+servers:
+  - url: https://api.wheel.example.com/v1
+
+security:
+  - licenseKey: []
+    requestSignature: []
+
+tags:
+  - name: wheels
+    description: Версии колеса. Версия неизменяема; меню, шансы и цены фиксируются при создании.
+  - name: spins
+    description: Вращения. Резерв токенов, розыгрыш, раскрытие сида, отмена.
+  - name: pricing
+    description: Расчёт цены по меню без создания колеса (то же, что calc/price.js).
+  - name: queue
+    description: Очередь призов модели и состояние эфира. Источник правила допуска.
+  - name: promos
+    description: Акции, купоны и фриспины. Скидка существует только как акция.
+  - name: audit
+    description: История и проверка честности.
+
+paths:
+  /wheels:
+    post:
+      tags: [wheels]
+      operationId: createWheel
+      summary: Создать версию колеса
+      description: |
+        Сервер нормализует веса в ppm, прогоняет валидатор и считает цены для каждого k из
+        `price_k` (или значений по умолчанию). При нарушении правил возвращает 422 со списком
+        нарушений; версия не создаётся. Успешный ответ содержит `content_hash` — SHA-256
+        канонического JSON меню и шансов; он печатается зрителю и входит в проверку честности.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WheelCreate' }
+      responses:
+        '201':
+          description: Версия создана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Wheel' }
+        '422':
+          description: Колесо отклонено валидатором или цены не существует (S_min > EV)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationError' }
+        default: { $ref: '#/components/responses/Error' }
+    get:
+      tags: [wheels]
+      operationId: listWheels
+      summary: Версии колеса модели
+      parameters:
+        - { name: model_id, in: query, required: true, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [active, retired, all], default: all } }
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Список версий
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Wheel' } }
+                  next_cursor: { type: [string, 'null'] }
+        default: { $ref: '#/components/responses/Error' }
+
+  /wheels/{wheel_id}:
+    get:
+      tags: [wheels]
+      operationId: getWheel
+      summary: Версия колеса
+      parameters: [ { $ref: '#/components/parameters/WheelId' } ]
+      responses:
+        '200':
+          description: Версия
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Wheel' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [wheels]
+      operationId: setWheelStatus
+      summary: Включить или выключить версию
+      description: |
+        Меняется только `status` (`active` / `retired`) и настройки динамической цены.
+        Меню, шансы и ступени цен версии неизменяемы: для другого меню создаётся новая версия.
+        У модели может быть не больше одной активной версии; активация новой отправляет старую в retired.
+      parameters: [ { $ref: '#/components/parameters/WheelId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                status: { type: string, enum: [active, retired] }
+                dynamic_price: { $ref: '#/components/schemas/DynamicPriceConfig' }
+      responses:
+        '200':
+          description: Обновлённая версия
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Wheel' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /wheels/{wheel_id}/public:
+    get:
+      tags: [wheels]
+      operationId: getWheelPublic
+      summary: Публичные данные для зрителя
+      description: |
+        То, что виджет показывает зрителю до оплаты: пункты с ценами по меню и шансами в ppm,
+        текущая цена вращения, `content_hash`. Без закрытых параметров (μ, границы, выгода).
+        Доступно также по ключу виджета (см. api/README.md).
+      parameters: [ { $ref: '#/components/parameters/WheelId' } ]
+      responses:
+        '200':
+          description: Публичная карточка колеса
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WheelPublic' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /pricing/quote:
+    post:
+      tags: [pricing]
+      operationId: quotePrice
+      summary: Рассчитать цену по меню
+      description: |
+        Чистый расчёт без побочных эффектов: EV, CV, границы, цена для каждого k, шанс выигрыша,
+        риск серии, результат валидатора. Эквивалент `node price.js` для одного меню.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuoteRequest' }
+      responses:
+        '200':
+          description: Расчёт
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quote' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /spins:
+    post:
+      tags: [spins]
+      operationId: createSpin
+      summary: Начать вращение (резерв)
+      description: |
+        Порядок: проверка допуска (активная версия, очередь не полна, до конца эфира хватает
+        времени на худший приз) → фиксация цены, действующей 30 секунд → commit сида
+        (`server_seed_hash`) → вебхук `charge.reserve` платформе. Токены резервирует платформа;
+        до `commit` розыгрыша не происходит, и вероятности после начала вращения не меняются.
+        `client_seed` задаёт зритель или виджет; он входит в розыгрыш и в проверку честности.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpinCreate' }
+      responses:
+        '201':
+          description: Вращение зарезервировано
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Spin' }
+        '409':
+          description: Допуск не пройден (очередь полна, эфир заканчивается, версия не активна)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdmissionError' }
+        default: { $ref: '#/components/responses/Error' }
+    get:
+      tags: [spins, audit]
+      operationId: listSpins
+      summary: История вращений
+      parameters:
+        - { name: model_id, in: query, schema: { type: string } }
+        - { name: wheel_id, in: query, schema: { type: string } }
+        - { name: viewer_id, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/SpinStatus' } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Страница истории
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Spin' } }
+                  next_cursor: { type: [string, 'null'] }
+        default: { $ref: '#/components/responses/Error' }
+
+  /spins/{spin_id}:
+    get:
+      tags: [spins]
+      operationId: getSpin
+      summary: Вращение
+      parameters: [ { $ref: '#/components/parameters/SpinId' } ]
+      responses:
+        '200':
+          description: Вращение
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Spin' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /spins/{spin_id}/commit:
+    post:
+      tags: [spins]
+      operationId: commitSpin
+      summary: Подтвердить оплату и разыграть
+      description: |
+        Вызывается платформой после успешного резерва (ответ на `charge.reserve` или отдельным
+        запросом). Сервер один раз вычисляет исход: HMAC-SHA256(server_seed, client_seed + ":" +
+        nonce) → число 0..999999 отбором без смещения → пункт меню по кумулятивным ppm.
+        Затем кладёт приз в очередь модели, шлёт `charge.commit` и `spin.result`, раскрывает
+        `server_seed`. Повторный вызов с тем же Idempotency-Key возвращает тот же результат.
+      parameters:
+        - $ref: '#/components/parameters/SpinId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Разыгранное вращение с результатом и раскрытым сидом
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Spin' }
+        '409':
+          description: Вращение уже отменено или истёк срок резерва
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /spins/{spin_id}/cancel:
+    post:
+      tags: [spins]
+      operationId: cancelSpin
+      summary: Отменить вращение до розыгрыша
+      description: |
+        Допустима только для статуса `reserved` (оплата не подтверждена или зритель передумал,
+        пока действовала зафиксированная цена). Сервер шлёт `charge.release`. После розыгрыша
+        отмены нет: приз либо исполняется, либо переносится решением платформы.
+      parameters:
+        - $ref: '#/components/parameters/SpinId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Отменённое вращение
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Spin' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /spins/{spin_id}/fairness:
+    get:
+      tags: [audit]
+      operationId: getSpinFairness
+      summary: Данные для проверки честности
+      description: |
+        Всё, что нужно для независимой проверки: `server_seed_hash` (показан до вращения),
+        `server_seed` (после розыгрыша), `client_seed`, `nonce`, `content_hash` версии колеса,
+        меню с ppm и формула. Проверка: SHA-256(server_seed) == server_seed_hash; HMAC даёт то же
+        число; число попадает в интервал ppm выпавшего пункта.
+      parameters: [ { $ref: '#/components/parameters/SpinId' } ]
+      responses:
+        '200':
+          description: Набор для проверки
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Fairness' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /models/{model_id}/stream:
+    put:
+      tags: [queue]
+      operationId: setStreamState
+      summary: Состояние эфира модели
+      description: |
+        Платформа сообщает начало и плановый конец эфира и ёмкость очереди. Эти данные питают
+        правило допуска: вращение не продаётся, если очередь полна или до конца эфира не хватает
+        времени на худший приз с буфером.
+      parameters: [ { $ref: '#/components/parameters/ModelId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StreamState' }
+      responses:
+        '200':
+          description: Принято
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StreamState' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /models/{model_id}/queue:
+    get:
+      tags: [queue]
+      operationId: getQueue
+      summary: Очередь призов модели
+      description: 'Для панели модели: список невыполненных призов по порядку, текущая цена, пауза.'
+      parameters: [ { $ref: '#/components/parameters/ModelId' } ]
+      responses:
+        '200':
+          description: Очередь
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Queue' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /queue/{item_id}/complete:
+    post:
+      tags: [queue]
+      operationId: completeQueueItem
+      summary: Отметить приз выполненным
+      description: Жмёт модель в панели. Снимает приз из очереди и пишет отметку в аудит-журнал.
+      parameters:
+        - { name: item_id, in: path, required: true, schema: { type: string } }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Обновлённый элемент очереди
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueItem' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /promos:
+    post:
+      tags: [promos]
+      operationId: createPromo
+      summary: Создать акцию, купон или пакет фриспинов
+      description: |
+        Скидка задаётся глубиной d от базовой цены и бюджетом. Ограничения сервера: цена со
+        скидкой не ниже S_min версии; шансы колеса акция не меняет. Фриспин — предельный случай
+        d = 1; плату вендора с фриспина сервер не начисляет.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PromoCreate' }
+      responses:
+        '201':
+          description: Акция создана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Promo' }
+        '422':
+          description: Скидка опускает цену ниже S_min или бюджет некорректен
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+webhooks:
+  charge.reserve:
+    post:
+      operationId: webhookChargeReserve
+      summary: Зарезервировать токены зрителя
+      description: |
+        Вендор → платформа при создании вращения. Платформа отвечает 200 с `{"ok": true}`,
+        если резерв поставлен; любой другой ответ отменяет вращение. Подпись и повторы —
+        как у всех вебхуков (api/README.md).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChargeEvent' }
+      responses:
+        '200':
+          description: Резерв поставлен
+  charge.commit:
+    post:
+      operationId: webhookChargeCommit
+      summary: Списать зарезервированные токены
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChargeEvent' }
+      responses:
+        '200':
+          description: Списано
+  charge.release:
+    post:
+      operationId: webhookChargeRelease
+      summary: Снять резерв (отмена вращения)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChargeEvent' }
+      responses:
+        '200':
+          description: Резерв снят
+  spin.result:
+    post:
+      operationId: webhookSpinResult
+      summary: Результат вращения
+      description: Вендор → платформа после розыгрыша. Для начислений модели и ленты событий чата.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpinResultEvent' }
+      responses:
+        '200':
+          description: Принято
+
+components:
+  securitySchemes:
+    licenseKey:
+      type: http
+      scheme: bearer
+      description: |
+        Лицензионный ключ клиента-платформы: `Authorization: Bearer wl_...`. Ключ выдаётся при
+        подписании договора, привязан к платформе и её вебхук-секрету, отзывается вендором.
+        Только платформы с действующим ключом могут вызывать API; передача ключа третьим лицам
+        запрещена договором и видна по аудиту источников запросов.
+    requestSignature:
+      type: apiKey
+      in: header
+      name: X-Wheel-Signature
+      description: |
+        HMAC-SHA256 запроса ключевым секретом: подписывается строка
+        `{X-Wheel-Timestamp}.{METHOD}.{PATH}.{SHA256(body)}`. Окно времени ±300 с.
+        Детали и примеры — api/README.md.
+
+  parameters:
+    WheelId: { name: wheel_id, in: path, required: true, schema: { type: string } }
+    SpinId: { name: spin_id, in: path, required: true, schema: { type: string } }
+    ModelId: { name: model_id, in: path, required: true, schema: { type: string } }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+      description: Курсор следующей страницы из прошлого ответа.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, maxLength: 64 }
+      description: |
+        Уникальный ключ операции. Повтор с тем же ключом возвращает первый результат и ничего
+        не делает заново. Хранится не меньше 24 часов.
+
+  responses:
+    Error:
+      description: Ошибка
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, examples: [invalid_signature] }
+        message: { type: string }
+        request_id: { type: string }
+
+    ValidationError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            violations:
+              type: array
+              description: Нарушенные правила валидатора.
+              items:
+                type: object
+                required: [rule, message]
+                properties:
+                  rule: { type: string, enum: [ppm_sum, consolation, jackpot, cv, price, menu_mismatch] }
+                  message: { type: string }
+                  value: { type: number }
+                  limit: { type: number }
+
+    AdmissionError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            reason: { type: string, enum: [queue_full, stream_ending, wheel_inactive, paused] }
+            retry_after_s: { type: [integer, 'null'], description: 'Через сколько секунд имеет смысл повторить, если известно.' }
+
+    MenuItem:
+      type: object
+      required: [name, price, weight]
+      properties:
+        name: { type: string, maxLength: 80 }
+        price: { type: integer, minimum: 1, maximum: 100000, description: 'Цена услуги по меню модели, токены.' }
+        weight: { type: integer, minimum: 1, description: Вес шанса; сервер нормализует веса в ppm. }
+        role:
+          type: string
+          enum: [consolation, regular, jackpot]
+          default: regular
+          description: Без разметки утешительным считается самый дешёвый пункт, джекпотом самый дорогой.
+        duration_s: { type: integer, minimum: 0, default: 60, description: Сколько времени модели занимает приз; входит в правило допуска. }
+
+    WheelCreate:
+      type: object
+      required: [model_id, items]
+      properties:
+        model_id: { type: string }
+        items:
+          type: array
+          minItems: 2
+          maxItems: 24
+          items: { $ref: '#/components/schemas/MenuItem' }
+        price_k:
+          type: array
+          items: { type: number, exclusiveMinimum: 0, maximum: 1 }
+          default: [1.0, 0.8]
+          description: Варианты k; цена каждого — S(k) из модели, в коридоре [S_min, EV].
+        params:
+          $ref: '#/components/schemas/PriceParams'
+        dynamic_price:
+          $ref: '#/components/schemas/DynamicPriceConfig'
+        compliance_ack:
+          type: boolean
+          description: Подтверждение платформы, что юрисдикционные требования проверены (флаг договора).
+
+    PriceParams:
+      type: object
+      description: Параметры модели цены. Отсутствующие берутся из настроек платформы, затем из значений по умолчанию.
+      properties:
+        mu: { type: number, minimum: 0.05, maximum: 1, default: 0.4, description: Доля затрат в цене по меню. }
+        delta: { type: number, minimum: 0, maximum: 0.5, default: 0.1 }
+        alpha: { type: number, exclusiveMinimum: 0, maximum: 0.5, default: 0.05 }
+        n_horizon: { type: integer, enum: [1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100], default: 30 }
+        w_min: { type: number, minimum: 0, maximum: 0.9, default: 0, description: Минимальный шанс выигрыша; 0 — без ограничения. }
+
+    DynamicPriceConfig:
+      type: object
+      description: |
+        Динамика меняет только цену и только между вращениями; вероятности и ступени заморожены
+        в версии. Персональных цен нет: цена одна для всех зрителей в каждый момент.
+      properties:
+        enabled: { type: boolean, default: false }
+        steps:
+          type: array
+          items: { type: integer, minimum: 1 }
+          description: Объявленные ступени цены; каждая в коридоре [S_min, EV]. По умолчанию цены из price_k.
+        up_when_queue_above: { type: number, minimum: 0, maximum: 1, default: 0.6 }
+        down_when_queue_below: { type: number, minimum: 0, maximum: 1, default: 0.2 }
+        min_step_interval_s: { type: integer, minimum: 60, default: 300 }
+
+    Wheel:
+      type: object
+      required: [id, model_id, status, items, prices, content_hash, created_at]
+      properties:
+        id: { type: string }
+        model_id: { type: string }
+        status: { type: string, enum: [active, retired] }
+        items:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/MenuItem'
+              - type: object
+                required: [ppm]
+                properties:
+                  ppm: { type: integer, minimum: 1, maximum: 999999, description: Шанс в миллионных долях; сумма по колесу 1 000 000. }
+        stats:
+          type: object
+          description: EV, разброс, CV меню — чтобы платформа видела, из чего получилась цена.
+          properties:
+            ev: { type: number }
+            sd: { type: number }
+            cv: { type: number }
+        bounds:
+          type: object
+          properties:
+            s_min: { type: integer }
+            s_max: { type: integer }
+            floor_by: { type: string, enum: [risk, avg, menu] }
+        prices:
+          type: array
+          description: Посчитанные варианты цены.
+          items:
+            type: object
+            required: [k, price]
+            properties:
+              k: { type: number }
+              price: { type: integer }
+              clamped: { type: string, enum: ['', min, max], default: '' }
+              win_chance_ppm: { type: integer }
+              loss_prob: { type: number, description: Доля убыточных серий длиной n_horizon при этой цене. }
+        current_price: { type: integer, description: Действующая цена с учётом динамики. }
+        dynamic_price: { $ref: '#/components/schemas/DynamicPriceConfig' }
+        params: { $ref: '#/components/schemas/PriceParams' }
+        content_hash: { type: string, description: SHA-256 канонического JSON (items + ppm); печатается зрителю. }
+        created_at: { type: string, format: date-time }
+
+    WheelPublic:
+      type: object
+      required: [wheel_id, items, current_price, content_hash]
+      properties:
+        wheel_id: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            required: [name, price, ppm]
+            properties:
+              name: { type: string }
+              price: { type: integer }
+              ppm: { type: integer }
+        current_price: { type: integer }
+        price_valid_for_s: { type: integer, default: 30 }
+        win_chance_ppm: { type: integer, description: 'Шанс, что приз по меню не дешевле цены вращения.' }
+        content_hash: { type: string }
+        paused: { type: boolean }
+
+    QuoteRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 2
+          items: { $ref: '#/components/schemas/MenuItem' }
+        price_k:
+          type: array
+          items: { type: number }
+          default: [1.0, 0.8]
+        params: { $ref: '#/components/schemas/PriceParams' }
+
+    Quote:
+      type: object
+      required: [stats, bounds, prices, validator]
+      properties:
+        stats:
+          type: object
+          properties:
+            ev: { type: number }
+            sd: { type: number }
+            cv: { type: number }
+        bounds:
+          type: object
+          properties:
+            s_min: { type: integer }
+            s_max: { type: integer }
+            floor_by: { type: string, enum: [risk, avg, menu] }
+        prices:
+          type: array
+          items:
+            type: object
+            properties:
+              k: { type: number }
+              price: { type: integer }
+              clamped: { type: string, enum: ['', min, max] }
+              win_chance_ppm: { type: integer }
+              loss_prob: { type: number }
+        validator:
+          type: object
+          required: [ok]
+          properties:
+            ok: { type: boolean }
+            violations:
+              type: array
+              items:
+                type: object
+                properties:
+                  rule: { type: string }
+                  message: { type: string }
+
+    SpinStatus:
+      type: string
+      enum: [reserved, committed, cancelled, expired]
+      description: |
+        reserved — цена зафиксирована, токены в резерве; committed — оплачено и разыграно;
+        cancelled — отменено до розыгрыша; expired — резерв истёк (фиксация цены закончилась,
+        подтверждение не пришло), токены возвращены.
+
+    SpinCreate:
+      type: object
+      required: [wheel_id, viewer_id, client_seed]
+      properties:
+        wheel_id: { type: string }
+        viewer_id: { type: string, description: Непрозрачный идентификатор зрителя на платформе; персональные данные не передаются. }
+        client_seed: { type: string, minLength: 8, maxLength: 128 }
+        promo_code: { type: [string, 'null'] }
+        shown_price: { type: integer, description: 'Цена, которую видел зритель; если она уже не действует, сервер отвечает 409 price_changed.' }
+
+    Spin:
+      type: object
+      required: [id, wheel_id, model_id, viewer_id, status, price, server_seed_hash, nonce, created_at]
+      properties:
+        id: { type: string }
+        wheel_id: { type: string }
+        model_id: { type: string }
+        viewer_id: { type: string }
+        status: { $ref: '#/components/schemas/SpinStatus' }
+        price: { type: integer, description: Базовая цена на момент вращения. }
+        paid_price: { type: integer, description: Фактически списанная цена с учётом акции; плата вендора считается от неё. }
+        promo_id: { type: [string, 'null'] }
+        reserve_expires_at: { type: string, format: date-time }
+        server_seed_hash: { type: string, description: SHA-256 серверного сида; выдан до розыгрыша. }
+        client_seed: { type: string }
+        nonce: { type: integer, description: Счётчик вращений данного сида. }
+        result:
+          type: [object, 'null']
+          description: Появляется в статусе committed.
+          properties:
+            item_index: { type: integer }
+            item_name: { type: string }
+            item_price: { type: integer }
+            roll_ppm: { type: integer, minimum: 0, maximum: 999999 }
+            queue_item_id: { type: string }
+        server_seed: { type: [string, 'null'], description: Раскрывается после розыгрыша. }
+        content_hash: { type: string }
+        created_at: { type: string, format: date-time }
+        committed_at: { type: [string, 'null'], format: date-time }
+
+    Fairness:
+      type: object
+      required: [spin_id, server_seed_hash, client_seed, nonce, content_hash, algorithm]
+      properties:
+        spin_id: { type: string }
+        server_seed_hash: { type: string }
+        server_seed: { type: [string, 'null'] }
+        client_seed: { type: string }
+        nonce: { type: integer }
+        roll_ppm: { type: [integer, 'null'] }
+        content_hash: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              ppm: { type: integer }
+              ppm_from: { type: integer, description: Начало интервала пункта в кумулятивной шкале 0..999999. }
+        algorithm:
+          type: string
+          description: Словесное описание алгоритма розыгрыша для независимой проверки.
+
+    StreamState:
+      type: object
+      required: [live]
+      properties:
+        live: { type: boolean }
+        started_at: { type: [string, 'null'], format: date-time }
+        ends_at: { type: [string, 'null'], format: date-time, description: Плановый конец эфира; питает правило допуска. }
+        queue_limit: { type: integer, minimum: 1, default: 5 }
+        buffer_s: { type: integer, minimum: 0, default: 60, description: Буфер времени в правиле допуска. }
+
+    Queue:
+      type: object
+      required: [model_id, items, paused]
+      properties:
+        model_id: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/QueueItem' }
+        paused: { type: boolean, description: Колесо на паузе — очередь полна или эфир заканчивается. }
+        current_price: { type: integer }
+        time_left_s: { type: [integer, 'null'] }
+
+    QueueItem:
+      type: object
+      required: [id, spin_id, item_name, item_price, status, created_at]
+      properties:
+        id: { type: string }
+        spin_id: { type: string }
+        viewer_id: { type: string }
+        item_name: { type: string }
+        item_price: { type: integer }
+        duration_s: { type: integer }
+        status: { type: string, enum: [pending, done] }
+        created_at: { type: string, format: date-time }
+        done_at: { type: [string, 'null'], format: date-time }
+
+    PromoCreate:
+      type: object
+      required: [model_id, kind]
+      properties:
+        model_id: { type: string }
+        kind: { type: string, enum: [discount, coupon, freespin] }
+        discount: { type: number, exclusiveMinimum: 0, maximum: 1, description: 'Глубина d; paid = round(price × (1 − d)), но не ниже S_min. Для freespin всегда 1.' }
+        budget_spins: { type: integer, minimum: 1, description: Максимум вращений по акции. }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        code: { type: [string, 'null'], description: Код купона; для kind=coupon обязателен. }
+
+    Promo:
+      allOf:
+        - $ref: '#/components/schemas/PromoCreate'
+        - type: object
+          required: [id, used_spins, active]
+          properties:
+            id: { type: string }
+            used_spins: { type: integer }
+            active: { type: boolean }
+
+    ChargeEvent:
+      type: object
+      required: [event_id, type, spin_id, model_id, viewer_id, amount, created_at]
+      properties:
+        event_id: { type: string, description: Уникален; платформа дедуплицирует повторы по нему. }
+        type: { type: string, enum: [charge.reserve, charge.commit, charge.release] }
+        spin_id: { type: string }
+        model_id: { type: string }
+        viewer_id: { type: string }
+        amount: { type: integer, description: Токены. Для commit — paid_price. }
+        promo_id: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+
+    SpinResultEvent:
+      type: object
+      required: [event_id, type, spin_id, model_id, viewer_id, result, created_at]
+      properties:
+        event_id: { type: string }
+        type: { type: string, const: spin.result }
+        spin_id: { type: string }
+        model_id: { type: string }
+        viewer_id: { type: string }
+        result:
+          type: object
+          properties:
+            item_name: { type: string }
+            item_price: { type: integer }
+            queue_item_id: { type: string }
+        fairness:
+          type: object
+          properties:
+            server_seed_hash: { type: string }
+            roll_ppm: { type: integer }
+        created_at: { type: string, format: date-time }
