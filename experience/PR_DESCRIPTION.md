@@ -12,7 +12,7 @@ The repository previously demonstrated a standalone player wheel plus a pricing 
 | Reporting | Pricing analysis | Separate dashboard: gross spend, refunds/net retained, prize and value-win rates, history, CSV |
 | Demonstration | Original wheel and calculator | Additional gallery, screenshots, four pricing scenarios and an end-to-end walkthrough |
 
-The original `demo/`, `calc/`, PDF and API specification remain unchanged. This is an alternative product/pricing policy, not a replacement claiming compatibility with every PDF rule.
+The existing `/demo/` Pages URL now redirects to the updated player experience, with navigation to Operator and Management. The original `calc/`, PDF and API specification remain unchanged. This is an alternative product/pricing policy, not a replacement claiming compatibility with every PDF rule.
 
 ## Why spin price is calculated rather than fixed
 

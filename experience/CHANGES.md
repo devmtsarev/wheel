@@ -41,6 +41,10 @@ The player/operator layouts were inspected at the current narrow browser width a
 
 This is a browser-local demo, not the server implementation of `api/openapi.yaml`. The upstream API specification is preserved. Production needs authenticated viewer/staff sessions, a server-owned ledger/randomness, wallet reserve/commit/reconciliation, signed webhooks, and server events. The new automatic inverse-price policy differs from the original `calc/model.js` model; both remain separately named and tested. Existing Pages settings are not changed, and this PR does not deploy or merge itself.
 
+## Published demo entry point
+
+The existing GitHub Pages `/demo/` link opens the updated `experience/` player view, with Operator and Management in its navigation. A relative redirect supports both the `/wheel/` Pages prefix and local serving. The gallery remains at `/experience/demos/`. Publication follows merging this branch into `main`.
+
 ## Variance audit against the original PDF
 
 Run `node experience/scripts/audit-variance.mjs` (or add `--json`) to reproduce this table from the actual pricing function and scenario definitions. Zero-value no-prize outcomes are retained in both moments and exact convolution; the original calculator's `normalize()` would discard them and must not be used here.

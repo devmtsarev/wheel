@@ -7,7 +7,7 @@
 | Что | Ссылка |
 | --- | --- |
 | Демо интеграции: зритель, оператор, управление и сценарии цены | [experience/demos/](experience/demos/index.html) (после публикации: https://devmtsarev.github.io/wheel/experience/demos/) |
-| Демо колеса | https://devmtsarev.github.io/wheel/demo/ |
+| Демо колеса: зритель, оператор и управление | https://devmtsarev.github.io/wheel/demo/ |
 | Документ с моделью цены | https://devmtsarev.github.io/wheel/docs/ |
 | Документ в PDF | https://devmtsarev.github.io/wheel/docs/model.pdf |
 | Калькулятор цены вращения | https://devmtsarev.github.io/wheel/calc/ |
@@ -20,7 +20,7 @@
 
 - `api/` — описание API: `openapi.yaml` (OpenAPI 3.1), в `api/README.md` — подпись запросов, порядок вращения, вебхуки и WebSocket.
 - `calc/` — модель цены (`model.js`), тесты, калькулятор, пакетный расчёт цены для меню разных моделей (`price.js`).
-- `demo/` — демо виджета колеса.
+- `demo/` — постоянная ссылка на актуальное демо в `experience/`.
 - `docs/` — документ с математикой и графиками: `model.md`, страница `index.html`, `model.pdf`.
 
 Страницы работают, пока репозиторий публичный и в Settings → Pages выбрана ветка `main`, папка `/ (root)`.
