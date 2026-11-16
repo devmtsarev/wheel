@@ -26,10 +26,11 @@
   }
   // «Риск серии»: точное распределение суммы призов за N вращений (свёртка).
   // Возвращает для каждой длины серии хвостовые суммы: tail[N][x] = Pr(P_N >= x)
-  function buildTails(P, Q) {
+  // maxN ограничивает длину серии (для кривых по γ, где нужна только одна длина)
+  function buildTails(P, Q, maxN) {
     const maxP = Math.max(...P), keep = new Set(SERIES), tails = {};
     let cur = new Float64Array(1); cur[0] = 1;
-    for (let n = 1; n <= SERIES[SERIES.length - 1]; n++) {
+    for (let n = 1; n <= (maxN || SERIES[SERIES.length - 1]); n++) {
       const nx = new Float64Array(cur.length + maxP);
       for (let j = 0; j < P.length; j++) {
         const p = P[j], q = Q[j]; if (!q) continue;
@@ -101,7 +102,7 @@
   function solve(b, e) {
     const bRoi = roiFloorK(e) * b.EV;
     const lo0 = Math.ceil(Math.max(b.bMenu, b.bAvg, b.bRisk) - EPS);      // без требования к ROI
-    const lo = Math.ceil(Math.max(lo0, bRoi) - EPS), hi = Math.floor(Math.min(b.EV, b.Sw) + EPS);
+    const lo = Math.ceil(Math.max(lo0, bRoi) - EPS), hi = Math.floor(Math.min((e.kmax > 0 ? e.kmax : 1) * b.EV, b.Sw) + EPS);
     const feasible = lo <= hi; let opt = NaN, optG = NaN;
     for (let S = feasible ? lo : lo0; S <= hi; S++) { const g = gain(S, b.EV, e); if (!(g <= optG + EPS)) { opt = S; optG = g; } }
     return { bRoi, lo, hi, lo0, feasible, opt, optG, capS: capacityPrice(b.EV, e.eps, e.load) };
@@ -143,9 +144,33 @@
   // ---------- «Политика шансов»: шансы из цен ----------
   // q_i ∝ C_i^(−γ). γ = 0 — равные шансы; γ = 1 — шанс обратно пропорционален цене
   // (равный вклад пунктов в EV); γ > 1 — дорогие пункты ещё реже. Возвращает веса с суммой 1.
-  function chancePolicy(prices, gamma) {
-    const w = prices.map((c) => Math.pow(c, -gamma)), W = w.reduce((a, b) => a + b, 0);
+  // adj — необязательные поправки по пунктам a_i (1 — по правилу, меньше 1 — пункт «прижат»):
+  // q_i = a_i·C_i^(−γ) / Σ_j a_j·C_j^(−γ). Деление на сумму и есть условие Σ q_i = 1.
+  function chancePolicy(prices, gamma, adj) {
+    const w = prices.map((c, i) => (adj ? adj[i] : 1) * Math.pow(c, -gamma)), W = w.reduce((a, b) => a + b, 0);
     return w.map((x) => x / W);
+  }
+  // какому γ ближе всего заданные шансы: наклон ln q по ln C (метод наименьших квадратов)
+  function fitGamma(P, Q) {
+    const pts = P.map((p, i) => [p, Q[i]]).filter(([p, q]) => p > 0 && q > 0);
+    if (new Set(pts.map((x) => x[0])).size < 2) return NaN;
+    const x = pts.map((v) => Math.log(v[0])), y = pts.map((v) => Math.log(v[1])), n = pts.length;
+    const mx = x.reduce((a, b) => a + b, 0) / n, my = y.reduce((a, b) => a + b, 0) / n;
+    return -x.reduce((a, v, i) => a + (v - mx) * (y[i] - my), 0) / x.reduce((a, v) => a + (v - mx) ** 2, 0);
+  }
+  // кривые по γ для графиков «коридор цены» и «горб CV»: EV, CV и S_min при шансах из цен.
+  // o: {z, mu, delta, alpha, Nh, floorAt} — floorAt: значения γ, где считать S_min (расчёт дорогой)
+  function policyCurve(prices, gammas, o) {
+    const z = o.z > 0 ? Math.min(o.z, 0.99) : 0, need = o.floorAt ? new Set(o.floorAt.map((g) => g.toFixed(3))) : null;
+    return gammas.map((g) => {
+      const q = chancePolicy(prices, g, o.adj), P = z > 0 ? prices.concat(0) : prices, Q = z > 0 ? q.map((v) => v * (1 - z)).concat(z) : q;
+      const s = stats(P, Q), row = { g, EV: s.EV, CV: s.CV, qTop: Q[prices.indexOf(Math.max(...prices))] };
+      if (!need || need.has(g.toFixed(3))) {
+        const t = buildTails(P, Q, o.Nh);
+        row.smin = Math.ceil(Math.max(riskFloor(t, o.Nh, o.mu, o.alpha, s.maxP), avgFloor(o.mu, o.delta, s.EV), menuGuard(P, Q)) - EPS);
+      }
+      return row;
+    });
   }
   // меню для base()/validate(): цены + политика шансов (веса в миллионных долях)
   const policyItems = (prices, gamma) => chancePolicy(prices, gamma).map((q, i) => ({ p: prices[i], w: q * 1e6 }));
@@ -211,12 +236,12 @@
   }
   // полный расчёт. Доли передаются числами от 0 до 1: alpha, f, wmin
   function evaluate(p) {
-    const b = base(p), e = { sigma: p.sigma, f: p.f, rho: p.rho, c0: p.c0, phi: p.phi, eps: p.eps, load: p.load };
+    const b = base(p), e = { sigma: p.sigma, f: p.f, rho: p.rho, c0: p.c0, phi: p.phi, eps: p.eps, load: p.load, kmax: p.kmax };
     return Object.assign({}, b, solve(b, e), { econ: e });
   }
 
   return { SERIES, normalize, stats, buildTails, lossProb, riskFloor, avgFloor, menuGuard, winChance, winCeiling,
     cannibalization, breakEvenK, roiFloorK, optimumK, volume, capacityPrice, gain, roi, base, solve, evaluate, priceForK, validate, LIMITS,
-    chancePolicy, policyItems, marginPrice, kOfMargin, marginOfK, gammaForK, costTails, lossProbCost,
+    chancePolicy, fitGamma, policyCurve, policyItems, marginPrice, kOfMargin, marginOfK, gammaForK, costTails, lossProbCost,
     fitDemand, demandAt, capacityPerHour, clearingPrice, dynamicStep };
 });

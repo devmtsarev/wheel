@@ -110,3 +110,25 @@ test('спрос и динамическая цена: ε восстанавли
   assert.equal(M.dynamicStep(Object.assign({ current: 45 }, o, { capacity: cap / 100 })), 50); // спрос много выше — но не выше потолка
   near(M.capacityPerHour([0.5, 0.5], [60, 180], 0.5), 15, 1e-9);
 });
+
+test('условие нормировки, поправки по пунктам и подгонка γ', () => {
+  for (const g of [0, 0.5, 1, 2.5]) near(M.chancePolicy(PR, g).reduce((a, x) => a + x, 0), 1, 1e-12);
+  near(pol(1, 0.2).Q.reduce((a, x) => a + x, 0), 1, 1e-12);                       // с пустым сектором сумма тоже 1
+  near(M.fitGamma(PR, M.chancePolicy(PR, 0.7)), 0.7, 1e-9); near(M.fitGamma(b.P, b.Q), 0.5, 0.01); // ручное меню ≈ γ 0,5
+  const adj = [1, 1, 1, 1, 1, 1, 1, 0.63], q = M.chancePolicy(PR, 0.5, adj);         // джекпот прижат на 37%
+  near(q[7], 0.02, 0.0005); near(M.stats(PR, q).CV, 1.79, 0.005);                  // CV 1,87 → 1,79 одним прижатым пунктом
+});
+test('пустой сектор выносится за скобки: EV = (1 − z)·EV0, CV² = (CV0² + z)/(1 − z), маржа от z не зависит', () => {
+  const b0 = pol(1, 0), z = 0.2181, bz = pol(1, z);
+  near(bz.EV, (1 - z) * b0.EV, 1e-9); near(bz.CV ** 2, (b0.CV ** 2 + z) / (1 - z), 1e-9);
+  const Sz = 20, S0 = Sz / (1 - z); near(S0, 25.58, 0.01);                          // та же сделка без пустого сектора
+  near(bz.EV / Sz, b0.EV / S0, 1e-9);                                               // отдача зрителю на токен одинакова
+  near(M.marginPrice(bz.P, bz.Q, 0.4, 2).k, M.marginPrice(b0.P, b0.Q, 0.4, 2).k, 1e-9);
+});
+test('кривая по γ и потолок k_max в коридоре', () => {
+  const c = M.policyCurve(PR, [0, 0.5, 1], { z: 0, mu: 0.4, delta: 0.1, alpha: 0.05, Nh: 30 });
+  assert.deepEqual(c.map((r) => r.smin), [67, 33, 15]); near(c[2].CV, 2.124, 0.001); near(c[2].qTop, 0.005329, 1e-6);
+  const zf = 1 - 20 * PR.reduce((a, c) => a + 1 / c, 0) / 9.6; // точная доля пустого сектора альтернативной модели
+  const fr = M.evaluate(Object.assign({}, D, { items: M.policyItems(PR, 1), z: zf, kmax: 1.2, rho: 1 }));
+  assert.equal(fr.hi, 20); assert.equal(M.evaluate(Object.assign({}, D, { items: M.policyItems(PR, 1), z: zf })).hi, 16);
+});

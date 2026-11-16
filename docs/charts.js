@@ -73,7 +73,7 @@ const out = (name, s) => { fs.writeFileSync(path.join(__dirname, 'img', name), s
   s += `<path d="${pathOf(rows.map((r) => [X(r.g), Y(r.cv)]))}" fill="none" stroke="${B2}" stroke-width="2.5"/>`;
   const L = rows[rows.length - 1];
   s += T(xb + 10, Y(L.cvz) + 4, 'с пустым сектором 20%', { fill: INK }) + T(xb + 10, Y(L.cv) + 4, 'без пустого сектора', { fill: INK, bold: true });
-  s += dot(X(0.5), Y(hand.CV), ORANGE) + T(X(0.5) + 12, Y(hand.CV) + 16, `наше меню: ${ru(hand.CV, 2)} — джекпот прижат вручную`, { size: 11, fill: INK });
+  s += dot(X(0.5), Y(hand.CV), ORANGE) + T(X(0.5) + 12, Y(hand.CV) + 16, `наше меню: ${ru(hand.CV, 2)} — края прижаты вручную`, { size: 11, fill: INK });
   s += dot(X(1), Y(friend.CV), ORANGE) + T(X(1) + 10, Y(friend.CV) - 8, `альтернативная модель: ${ru(friend.CV, 2)}`, { size: 11, fill: INK });
   out('14-cv-hump.svg', svg(W, Hh, title, s));
 })();
