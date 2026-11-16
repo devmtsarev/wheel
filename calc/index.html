@@ -209,11 +209,13 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
   const cache = { key: '', tails: null };
   // всё, что зависит только от меню, затрат и риска
   function base(p) {
-    const { P, Q } = normalize(p.items);
+    const n0 = normalize(p.items), z = p.z > 0 ? Math.min(p.z, 0.99) : 0;
+    // пустой сектор: пункт с ценой 0 и шансом z, остальные шансы сжимаются в (1 − z)
+    const P = z > 0 ? n0.P.concat(0) : n0.P, Q = z > 0 ? n0.Q.map((q) => q * (1 - z)).concat(z) : n0.Q;
     const key = P.join(',') + '|' + Q.map((q) => q.toFixed(9)).join(',');
     if (key !== cache.key) { cache.tails = buildTails(P, Q); cache.key = key; }
     const s = stats(P, Q), tails = cache.tails;
-    return { P, Q, tails, EV: s.EV, sd: s.sd, CV: s.CV, maxP: s.maxP,
+    return { P, Q, z, tails, EV: s.EV, sd: s.sd, CV: s.CV, maxP: s.maxP,
       bMenu: menuGuard(P, Q), bAvg: avgFloor(p.mu, p.delta, s.EV),
       bRisk: riskFloor(tails, p.Nh, p.mu, p.alpha, s.maxP), Sw: winCeiling(P, Q, p.wmin) };
   }
@@ -228,8 +230,10 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
   }
   // «Расчёт цены для любой модели»: S(k) = min(S_max, max(S_min, round(k·EV)))
   // b — результат base(); возвращает цену, границы и то, какая граница сработала
-  function priceForK(b, k) {
-    const lo = Math.ceil(Math.max(b.bMenu, b.bAvg, b.bRisk) - EPS), hi = Math.floor(Math.min(b.EV, b.Sw) + EPS);
+  // kmax — потолок цены в долях EV: 1 значит «не дороже меню»; больше 1 — маржа поверх меню-стоимости
+  function priceForK(b, k, kmax) {
+    const cap = kmax > 0 ? kmax : 1;
+    const lo = Math.ceil(Math.max(b.bMenu, b.bAvg, b.bRisk) - EPS), hi = Math.floor(Math.min(cap * b.EV, b.Sw) + EPS);
     const raw = Math.round(k * b.EV), feasible = lo <= hi;
     const S = feasible ? Math.min(hi, Math.max(lo, raw)) : NaN;
     const floorBy = b.bRisk >= b.bAvg - EPS && b.bRisk >= b.bMenu - EPS ? 'risk' : b.bAvg >= b.bMenu ? 'avg' : 'menu';
@@ -238,23 +242,94 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
   // «Валидатор колеса»: правила, которые проверяются по меню и шансам.
   // Роль пункта задаётся полем role ('consolation' | 'jackpot'); без него
   // утешительным считается самый дешёвый пункт, джекпотом самый дорогой.
-  const LIMITS = { consolationMin: 0.20, jackpotShareMax: 0.25, cvMax: 2.0 };
+  const LIMITS = { consolationMin: 0.20, jackpotShareMax: 0.25, cvMax: 2.0, emptyMax: 0, kMax: 1 };
   function validate(items, b, lim) {
     const L = Object.assign({}, LIMITS, lim), its = items.filter((i) => i.p >= 1 && i.w > 0);
     const W = its.reduce((s, i) => s + i.w, 0) || 1, ps = its.map((i) => Math.round(i.p));
     const pMin = Math.min(...ps), pMax = Math.max(...ps);
     const hasC = its.some((i) => i.role === 'consolation'), hasJ = its.some((i) => i.role === 'jackpot');
     let consolation = 0, jackpot = 0;
+    const live = 1 - (b.z || 0); // доля вращений с призом; шансы пунктов считаются с учётом пустого сектора
     its.forEach((i, j) => {
-      if (hasC ? i.role === 'consolation' : ps[j] === pMin) consolation += i.w / W;
-      if (hasJ ? i.role === 'jackpot' : ps[j] === pMax) jackpot += ps[j] * i.w / W;
+      if (hasC ? i.role === 'consolation' : ps[j] === pMin) consolation += live * i.w / W;
+      if (hasJ ? i.role === 'jackpot' : ps[j] === pMax) jackpot += live * ps[j] * i.w / W;
     });
     const jackpotShare = jackpot / b.EV, errors = [];
     if (consolation < L.consolationMin - EPS) errors.push('consolation');
     if (jackpotShare > L.jackpotShareMax + EPS) errors.push('jackpot');
     if (b.CV > L.cvMax + EPS) errors.push('cv');
-    if (!priceForK(b, 1).feasible) errors.push('price');
-    return { ok: errors.length === 0, consolation, jackpotShare, cv: b.CV, errors };
+    if ((b.z || 0) > L.emptyMax + EPS) errors.push('empty');
+    if (!priceForK(b, 1, L.kMax).feasible) errors.push('price');
+    return { ok: errors.length === 0, consolation, jackpotShare, cv: b.CV, empty: b.z || 0, errors };
+  }
+  // ---------- «Политика шансов»: шансы из цен ----------
+  // q_i ∝ C_i^(−γ). γ = 0 — равные шансы; γ = 1 — шанс обратно пропорционален цене
+  // (равный вклад пунктов в EV); γ > 1 — дорогие пункты ещё реже. Возвращает веса с суммой 1.
+  function chancePolicy(prices, gamma) {
+    const w = prices.map((c) => Math.pow(c, -gamma)), W = w.reduce((a, b) => a + b, 0);
+    return w.map((x) => x / W);
+  }
+  // меню для base()/validate(): цены + политика шансов (веса в миллионных долях)
+  const policyItems = (prices, gamma) => chancePolicy(prices, gamma).map((q, i) => ({ p: prices[i], w: q * 1e6 }));
+
+  // ---------- «Маржа поверх себестоимости» ----------
+  // Себестоимость пункта μ_i·C_i, маржа m_i поверх неё. Цена вращения с гарантированной в среднем
+  // маржой: S = Σ q_i·μ_i·C_i·(1 + m_i). Пустой сектор (цена 0) затрат не несёт.
+  // mu и margin — число (одно на всё меню) или массив по пунктам в порядке P.
+  const at = (v, i) => (Array.isArray(v) ? v[i] : v);
+  function marginPrice(P, Q, mu, margin) {
+    let cost = 0, S = 0, EV = 0;
+    P.forEach((p, i) => { const c = Q[i] * at(mu, i) * p; cost += c; S += c * (1 + at(margin, i)); EV += Q[i] * p; });
+    return { cost, S, EV, k: S / EV, margin: S / cost - 1, muAvg: cost / EV };
+  }
+  // при одном μ и одной марже на всё меню связь прямая: k = μ·(1 + m), m = k/μ − 1
+  const kOfMargin = (mu, m) => mu * (1 + m);
+  const marginOfK = (mu, k) => k / mu - 1;
+  // Подбор γ под целевую лояльность k при марже по пунктам: k(γ) = Σ q_i r_i / Σ q_i C_i,
+  // где r_i = μ_i C_i (1 + m_i). Возвращает null, если цель недостижима на [gLo, gHi].
+  function gammaForK(prices, mu, margin, kTarget, gLo, gHi) {
+    const f = (g) => marginPrice(prices, chancePolicy(prices, g), mu, margin).k - kTarget;
+    let a = gLo == null ? 0 : gLo, b = gHi == null ? 3 : gHi, fa = f(a), fb = f(b);
+    if (Math.abs(fa) < 1e-9) return a; if (Math.abs(fb) < 1e-9) return b;
+    if (fa * fb > 0) return null;
+    for (let i = 0; i < 60; i++) { const m = (a + b) / 2, fm = f(m); if (fa * fm <= 0) { b = m; fb = fm; } else { a = m; fa = fm; } }
+    return (a + b) / 2;
+  }
+  // «Риск серии» при себестоимости по пунктам: распределение суммы затрат (в десятых долях токена)
+  function costTails(P, Q, mu) { return buildTails(P.map((p, i) => Math.round(at(mu, i) * p * 10)), Q); }
+  const lossProbCost = (tails, S, N) => lossProb(tails, S, N, 0.1); // убыток: N·S < Σ затрат
+
+  // ---------- «Динамическая цена по кривой спроса» ----------
+  // Оценка спроса по наблюдениям [{S, rate}] (цена, вращений в час): ln rate = a − ε·ln S
+  function fitDemand(obs) {
+    const pts = obs.filter((o) => o.S > 0 && o.rate > 0);
+    if (new Set(pts.map((o) => o.S)).size < 2) return null; // одна цена наклон не определяет
+    const x = pts.map((o) => Math.log(o.S)), y = pts.map((o) => Math.log(o.rate)), n = pts.length;
+    const mx = x.reduce((s, v) => s + v, 0) / n, my = y.reduce((s, v) => s + v, 0) / n;
+    const sxx = x.reduce((s, v) => s + (v - mx) ** 2, 0), sxy = x.reduce((s, v, i) => s + (v - mx) * (y[i] - my), 0);
+    const eps = -sxy / sxx;
+    return { eps, a: my + eps * mx, n };
+  }
+  const demandAt = (fit, S) => Math.exp(fit.a) * Math.pow(S, -fit.eps);
+  // предложение: сколько вращений в час модель успевает исполнить; share — доля эфира под призы
+  const capacityPerHour = (Q, durations, share) => (share == null ? 1 : share) * 3600 / Q.reduce((s, q, i) => s + q * (durations[i] || 0), 0);
+  // цена, при которой спрос равен предложению (Infinity/0, если спрос от цены не зависит)
+  function clearingPrice(fit, capacity) {
+    if (!fit || !(fit.eps > 0)) return fit && demandAt(fit, 1) > capacity ? Infinity : 0;
+    return Math.pow(Math.exp(fit.a) / capacity, 1 / fit.eps);
+  }
+  // один шаг динамической цены: к цене равновесия, но только по объявленным ступеням
+  // и только внутри коридора [lo, hi]; за вызов — не больше одной ступени
+  function dynamicStep(o) {
+    const steps = o.steps.filter((s) => s >= o.lo && s <= o.hi).sort((a, b) => a - b);
+    if (!steps.length) return o.current;
+    const target = Math.min(o.hi, Math.max(o.lo, clearingPrice(o.fit, o.capacity)));
+    let i = steps.indexOf(o.current);
+    if (i < 0) i = steps.reduce((bi, s, j) => (Math.abs(s - o.current) < Math.abs(steps[bi] - o.current) ? j : bi), 0);
+    // гистерезис: вверх — когда равновесная цена дошла до следующей ступени, вниз — когда опустилась до предыдущей
+    if (i < steps.length - 1 && target >= steps[i + 1]) return steps[i + 1];
+    if (i > 0 && target <= steps[i - 1]) return steps[i - 1];
+    return steps[i];
   }
   // полный расчёт. Доли передаются числами от 0 до 1: alpha, f, wmin
   function evaluate(p) {
@@ -263,7 +338,9 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
   }
 
   return { SERIES, normalize, stats, buildTails, lossProb, riskFloor, avgFloor, menuGuard, winChance, winCeiling,
-    cannibalization, breakEvenK, roiFloorK, optimumK, volume, capacityPrice, gain, roi, base, solve, evaluate, priceForK, validate, LIMITS };
+    cannibalization, breakEvenK, roiFloorK, optimumK, volume, capacityPrice, gain, roi, base, solve, evaluate, priceForK, validate, LIMITS,
+    chancePolicy, policyItems, marginPrice, kOfMargin, marginOfK, gammaForK, costTails, lossProbCost,
+    fitDemand, demandAt, capacityPerHour, clearingPrice, dynamicStep };
 });
 
 </script>
