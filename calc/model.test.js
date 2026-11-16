@@ -124,6 +124,9 @@ test('пустой сектор выносится за скобки: EV = (1 �
   const Sz = 20, S0 = Sz / (1 - z); near(S0, 25.58, 0.01);                          // та же сделка без пустого сектора
   near(bz.EV / Sz, b0.EV / S0, 1e-9);                                               // отдача зрителю на токен одинакова
   near(M.marginPrice(bz.P, bz.Q, 0.4, 2).k, M.marginPrice(b0.P, b0.Q, 0.4, 2).k, 1e-9);
+  near(Sz / b0.EV, 0.938, 0.001); near((Sz / b0.EV) / (1 - z), 1.2, 0.001);            // две базы цены: k = k0 / (1 − z)
+  const zmax = (4 - b.CV ** 2) / 5; near(zmax, 0.287, 0.001);                        // сколько пустоты выдерживает ручное меню до CV = 2
+  near(M.base(Object.assign({}, D, { z: zmax })).CV, 2, 1e-9);
 });
 test('кривая по γ и потолок k_max в коридоре', () => {
   const c = M.policyCurve(PR, [0, 0.5, 1], { z: 0, mu: 0.4, delta: 0.1, alpha: 0.05, Nh: 30 });
