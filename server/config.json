@@ -1,0 +1,12 @@
+{
+  "port": 8080,
+  "platforms": {
+    "wl_demo_0f3d9c2a7b1e": {
+      "id": "platform-demo",
+      "api_secret": "demo-api-secret-change-me",
+      "webhook_url": "http://localhost:8081/webhooks",
+      "webhook_secret": "demo-webhook-secret-change-me",
+      "widget_secret": "demo-widget-secret-change-me"
+    }
+  }
+}
