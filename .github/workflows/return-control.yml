@@ -1,0 +1,22 @@
+name: Return control experiment
+on:
+  push:
+    paths:
+      - 'experiments/return-control/**'
+      - '.github/workflows/return-control.yml'
+  pull_request:
+    paths:
+      - 'experiments/return-control/**'
+      - '.github/workflows/return-control.yml'
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: pip install -r experiments/return-control/requirements.txt
+      - run: python -m unittest discover -s experiments/return-control -p 'test_*.py'
