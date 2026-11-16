@@ -12,5 +12,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test calc/model.test.js experience/shared/store.test.mjs experience/embed/wheel.test.mjs experience/shared/variance.test.mjs
+      - run: node --test calc/model.test.js calc/page.test.js experience/shared/store.test.mjs experience/embed/wheel.test.mjs experience/shared/variance.test.mjs
       - run: node experience/scripts/audit-variance.mjs
+      - run: npm ci && npm test
+        working-directory: server

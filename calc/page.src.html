@@ -392,9 +392,10 @@ function buildControls() {
   $('#in-pol').addEventListener('change', (e) => { st.pol = e.target.checked; st.auto = true; update(); });
   $('#suggest').addEventListener('click', () => { const live = st.items.filter((i) => i.p >= 1);
     const r = M.suggestChances(live.map((i) => i.p), { gamma: st.gamma, z: st.z / 100, k: 0.8 });
-    live.forEach((it, j) => { it.w = Math.max(1, Math.round(r.q[j] * 10000)); }); st.pol = false; st.auto = true; menuKey = '';
+    live.forEach((it, j) => { it.w = r.items[j].w; }); st.pol = false; st.auto = true; menuKey = '';
+    const validation = M.validate(live, model(), { emptyMax: st.z / 100, kMax: st.kmax });
     const did = []; if (r.notes.includes('consolation')) did.push('самый дешёвый пункт приподнят до 20%'); if (r.notes.includes('press')) did.push('самый дорогой прижат, поправка ' + fmt(Math.min(...r.adj), 2));
-    $('#m-sug').textContent = 'Веса записаны по γ = ' + fmt(st.gamma, 2) + (did.length ? ': ' + did.join(', ') : ', правка не понадобилась') + (r.ok ? '.' : '. Валидатор всё равно не проходит: нужно менять меню.');
+    $('#m-sug').textContent = 'Веса записаны по γ = ' + fmt(st.gamma, 2) + (did.length ? ': ' + did.join(', ') : ', правка не понадобилась') + (validation.ok ? '.' : '. Валидатор всё равно не проходит: нужно менять меню.');
     renderMenu(); update(); });
   $('#add').addEventListener('click', () => { menuKey = ''; st.items.push({ t: 'Новый пункт', p: 50, w: 5 }); renderMenu(); update(); });
   $('#reset').addEventListener('click', () => { Object.assign(st, JSON.parse(DEFAULTS)); menuKey = 'example'; renderMenu(); update(); });
@@ -404,7 +405,7 @@ function buildControls() {
     try { await navigator.clipboard.writeText(el.value); $('#copy').textContent = 'Скопировано'; } catch (err) { try { document.execCommand('copy'); $('#copy').textContent = 'Скопировано'; } catch (e2) { $('#copy').textContent = 'Выделено: Ctrl+C'; } }
     setTimeout(() => { $('#copy').textContent = 'Скопировать'; }, 1500); });
   $('#menu').addEventListener('input', (e) => { const i = +e.target.dataset.i, k = e.target.dataset.k; if (!k) return;
-    menuKey = ''; st.items[i][k] = k === 't' ? e.target.value : clamp(Math.round(+e.target.value || 0), 0, k === 'p' ? 5000 : 1000); update(); });
+    menuKey = ''; st.items[i][k] = k === 't' ? e.target.value : k === 'p' ? clamp(Math.round(+e.target.value || 0), 0, 5000) : clamp(+e.target.value || 0, 0, 1000000); update(); });
   $('#menu').addEventListener('click', (e) => { const b = e.target.closest('button[data-del]'); if (!b || st.items.length <= 2) return;
     menuKey = ''; st.items.splice(+b.dataset.del, 1); renderMenu(); update(); });
   renderMenu();
@@ -412,7 +413,7 @@ function buildControls() {
 function renderMenu() {
   $('#menu').innerHTML = st.items.map((it, i) => `<tr><td><input id="m-t-${i}" data-i="${i}" data-k="t" value="${esc(it.t)}" aria-label="Название пункта"></td>
     <td><input id="m-p-${i}" data-i="${i}" data-k="p" type="number" min="1" max="5000" value="${it.p}" aria-label="Цена по меню"></td>
-    <td><input id="m-w-${i}" data-i="${i}" data-k="w" type="number" min="0" max="1000000" value="${it.w}" aria-label="Вес"></td>
+    <td><input id="m-w-${i}" data-i="${i}" data-k="w" type="number" min="0" max="1000000" step="any" value="${it.w}" aria-label="Вес"></td>
     <td class="q" id="m-q-${i}"></td><td><button type="button" class="x" data-del="${i}" aria-label="Удалить пункт">×</button></td></tr>`).join('');
 }
 const DEFAULTS = JSON.stringify(st);
@@ -445,8 +446,8 @@ function readParams() {
   const q = new URLSearchParams(raw); let any = false;
   if (q.has('menu') && PRESETS[q.get('menu')]) { menuKey = q.get('menu'); st.items = presetItems(menuKey); any = true; }
   if (q.has('items')) {
-    const its = q.get('items').split(',').map((x, i) => { const [p, w, ...t] = x.split(':'); return { t: t.join(':') || 'Пункт ' + (i + 1), p: Math.round(+p), w: Math.round(+w) }; })
-      .filter((i) => i.p >= 1 && i.p <= 5000 && i.w >= 0);
+    const its = q.get('items').split(',').map((x, i) => { const [p, w, ...t] = x.split(':'); return { t: t.join(':') || 'Пункт ' + (i + 1), p: Math.round(+p), w: +w }; })
+      .filter((i) => i.p >= 1 && i.p <= 5000 && Number.isFinite(i.w) && i.w >= 0);
     if (its.length >= 2) { menuKey = ''; st.items = its; any = true; }
   }
   for (const c of KEYS) if (q.has(c.k)) { const v = +q.get(c.k); if (isFinite(v)) { st[c.k] = clamp(v, c.min, c.max); any = true; } }
