@@ -410,6 +410,21 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
     return { eps, a: my + eps * mx, n };
   }
   const demandAt = (fit, S) => Math.exp(fit.a) * Math.pow(S, -fit.eps);
+  // Простая предиктивная модель спроса на лету. history: [{t, S, rate}] — минута эфира, цена и темп
+  // вращений в час за интервал (включая отказы в допуске). Каждое наблюдение приводится к опорной цене
+  // через эластичность, свежие весят больше (полураспад halfLife минут). Эластичность берётся из самих
+  // наблюдений, если в них есть две разные цены и оценка правдоподобна, иначе — априорная epsPrior.
+  // Результат совместим с demandAt, clearingPrice и dynamicStep.
+  function forecastDemand(history, o) {
+    o = o || {}; const pts = history.filter((h) => h.S > 0 && h.rate > 0); if (!pts.length) return null;
+    const now = o.now != null ? o.now : Math.max(...pts.map((h) => h.t)), half = o.halfLife > 0 ? o.halfLife : 10;
+    const own = fitDemand(pts), usable = own && own.eps >= 0.3 && own.eps <= 4;
+    const eps = usable ? own.eps : (o.epsPrior > 0 ? o.epsPrior : 1.5), Sref = pts[pts.length - 1].S;
+    let num = 0, den = 0;
+    for (const h of pts) { const w = Math.pow(0.5, (now - h.t) / half); num += w * h.rate * Math.pow(h.S / Sref, eps); den += w; }
+    const vRef = num / den;
+    return { eps, a: Math.log(vRef) + eps * Math.log(Sref), n: pts.length, vRef, Sref, epsSource: usable ? 'observed' : 'prior' };
+  }
   // предложение: сколько вращений в час модель успевает исполнить; share — доля эфира под призы
   const capacityPerHour = (Q, durations, share) => (share == null ? 1 : share) * 3600 / Q.reduce((s, q, i) => s + q * (durations[i] || 0), 0);
   // цена, при которой спрос равен предложению (Infinity/0, если спрос от цены не зависит)
@@ -439,7 +454,7 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
   return { SERIES, normalize, stats, buildTails, lossProb, riskFloor, avgFloor, menuGuard, winChance, winCeiling,
     cannibalization, breakEvenK, roiFloorK, optimumK, volume, capacityPrice, gain, roi, base, solve, evaluate, priceForK, validate, LIMITS,
     chancePolicy, fitGamma, policyCurve, policyItems, suggestChances, variants, loyaltyPrice, marginPrice, kOfMargin, marginOfK, gammaForK, costTails, lossProbCost,
-    fitDemand, demandAt, capacityPerHour, clearingPrice, dynamicStep };
+    fitDemand, forecastDemand, demandAt, capacityPerHour, clearingPrice, dynamicStep };
 });
 
 </script>

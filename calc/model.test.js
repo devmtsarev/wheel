@@ -157,3 +157,18 @@ test('стартовая конфигурация: шансы из цен с п�
   const flat = M.suggestChances([10, 20, 30], { gamma: 0.5 }); near(flat.q.reduce((a, x) => a + x, 0), 1, 1e-12);
   assert.deepEqual(M.variants(PR, {}, { k: [0.8, 1], gamma: [0.4, 0.6] }).map((v) => v.price), [41, 52, 32, 40]);
 });
+
+test('предиктивная модель спроса: свежие наблюдения весят больше, шаг цены срабатывает раньше среднего', () => {
+  const hist = [{ t: 0, S: 40, rate: 30 }, { t: 10, S: 40, rate: 34 }, { t: 20, S: 40, rate: 41 }, { t: 30, S: 40, rate: 48 }];
+  const f = M.forecastDemand(hist, { halfLife: 10, epsPrior: 1.5 });
+  assert.equal(f.epsSource, 'prior'); near(f.vRef, 43.07, 0.01); near(M.demandAt(f, 40), 43.07, 0.01);
+  const cap = M.capacityPerHour([.22, .2, .17, .13, .11, .09, .06, .02], [5, 15, 20, 45, 90, 60, 240, 600], 0.5); near(cap, 32.7, 0.05);
+  near(M.clearingPrice(f, cap), 48.1, 0.1);
+  const o = { capacity: cap, lo: 31, hi: 50, steps: [31, 36, 40, 45, 50], current: 40 };
+  assert.equal(M.dynamicStep(Object.assign({ fit: f }, o)), 45);                     // прогноз: спрос растёт — цена поднимается
+  const flat = { eps: 1.5, a: Math.log(38.25) + 1.5 * Math.log(40) };                 // простое среднее тех же наблюдений
+  assert.equal(M.dynamicStep(Object.assign({ fit: flat }, o)), 40);                   // среднее ещё не видит роста
+  const two = M.forecastDemand(hist.concat([{ t: 40, S: 45, rate: 40 }]));            // появилась вторая цена
+  assert.equal(two.Sref, 45); assert.ok(['observed', 'prior'].includes(two.epsSource));
+  assert.equal(M.forecastDemand([]), null);
+});
