@@ -1,0 +1,31 @@
+import {automaticPricing,ensureEpoch,menuFor,saveMenu,read,subscribe,metrics,pause,fulfill,esc,time,percent} from '../shared/store.js';
+await ensureEpoch();
+const $=id=>document.getElementById(id);let view='pending';
+$('close').onclick=()=>{$('panel').hidden=true;$('launch').hidden=false;};$('launch').onclick=()=>{$('panel').hidden=false;$('launch').hidden=true;$('close').focus();};
+for(const name of ['pending','history'])$(name).onclick=()=>{view=name;render();};
+$('pause').onclick=async()=>{try{await pause(!read().paused);$('error').textContent='';}catch(e){$('error').textContent=e.message;}};
+$('queue').onclick=async e=>{const b=e.target.closest('button[data-id]');if(!b)return;b.disabled=true;try{await fulfill(b.dataset.id,b.dataset.status);$('error').textContent='';}catch(e){$('error').textContent=e.message;render();}};
+function render(){try{const s=read(),m=metrics(s.spins);$('stats').innerHTML=`<div><strong>${m.n}</strong><small>Spins</small></div><div><strong>${m.gross}</strong><small>Tokens spent · gross</small></div><div><strong>${percent(m.prizeRate)}</strong><small>Prize rate</small></div><div><strong>${m.pending}</strong><small>Pending prizes</small></div>`;$('error').textContent=s.pricingError||'';$('live').innerHTML=`<span class="dot"></span>${s.pricingError?'Pricing needs updating':s.paused?'Paused':'Accepting spins'}`;$('pause').textContent=s.paused?'Resume spins':'Pause spins';for(const n of ['pending','history'])$(n).classList.toggle('active',n===view);const spins=s.spins.filter(x=>view==='pending'?x.status==='pending':x.status!=='pending');if(view==='history')spins.reverse();$('queue').innerHTML=spins.map(x=>`<article class="queue-item"><div class="row between"><span class="sub">${esc(x.viewer)} · ${time(x.at)}</span><span class="status ${x.status}">${x.status}</span></div><h3>${esc(x.prize.name)}</h3><p class="sub">${x.price} tokens paid${x.refunded?' · '+x.refunded+' refunded':''} · wheel v${x.version}</p>${x.status==='pending'?`<div class="actions"><button class="primary" data-id="${x.id}" data-status="completed">✓ Mark completed</button><button data-id="${x.id}" data-status="rejected">Refund</button></div>`:''}</article>`).join('')||`<div class="empty"><div style="font-size:30px;margin-bottom:12px">${view==='pending'?'✓':'◷'}</div><h3>${view==='pending'?'You’re all caught up':'No completed prizes yet'}</h3><p>${view==='pending'?'New prizes appear here as viewers spin.':'Handled prizes will appear here.'}</p><a href="../" target="_blank" rel="noopener" style="display:inline-block;margin-top:15px;color:#5c7341">Open player preview ↗</a></div>`;}catch(e){$('error').textContent=e.message;}}
+subscribe(render);render();
+
+let draft=[],draftVersion=0,dirty=false;
+function loadMenu(){const s=read();draft=menuFor(s).map(p=>({...p}));draftVersion=s.version;dirty=false;$('spin-price').textContent=s.price+' tokens';$('markup').value=s.markup??20;drawEditor();$('menu-feedback').textContent='Editing wheel v'+draftVersion;}
+function drawEditor(){
+  $('option-rows').innerHTML=draft.map((p,i)=>`<fieldset class="option-row"><legend>${p.kind==='none'?'No prize · automatic remainder':'Action '+(i+1)}</legend><label>Prize name<input data-i="${i}" data-field="title" value="${esc(p.title||p.name)}" maxlength="80" required></label><label>Short wheel label<input data-i="${i}" data-field="label" value="${esc(p.label||p.short)}" maxlength="16" required></label><div class="option-grid">${p.kind==='none'?'':`<label>Direct-purchase price (tokens)<input data-i="${i}" data-field="value" type="number" value="${p.value}" min="1" step="1" required></label>`}<label>Colour<input data-i="${i}" data-field="color" type="color" value="${p.color}"></label>${p.kind==='none'?'':`<button class="remove-option" type="button" data-remove="${i}" ${draft.filter(p=>p.kind!=='none').length<=1?'disabled':''}>Remove</button>`}</div><span class="sub" id="calculated-${i}"></span></fieldset>`).join('');preview();
+}
+function preview(){
+  $('add-option').disabled=draft.length>=12;
+  try{const result=automaticPricing(draft,Number($('markup').value));
+    $('spin-price').textContent=result.price+' tokens';
+    draft.forEach((p,i)=>{$('calculated-'+i).textContent='Calculated chance: '+result.menu.find(x=>x.id===p.id).weight.toFixed(4)+'%';});
+    $('chance-total').textContent=`Average reward value: ${result.ev.toFixed(4)} tokens per spin · effective markup: ${result.actualMarkup.toFixed(2)}%`;
+    $('chance-total').classList.remove('invalid');$('save-menu').disabled=false;
+  }catch(e){$('spin-price').textContent='—';$('chance-total').textContent=e.message;$('chance-total').classList.add('invalid');$('save-menu').disabled=true;draft.forEach((p,i)=>{$('calculated-'+i).textContent='Chance unavailable until prices are valid.';});}
+}
+for(const id of ['markup'])$(id).oninput=()=>{dirty=true;preview();};
+$('option-rows').addEventListener('input',e=>{const {i,field}=e.target.dataset;if(field){draft[+i][field]=field==='value'?Number(e.target.value):e.target.value;dirty=true;preview();}});
+$('option-rows').addEventListener('click',e=>{const b=e.target.closest('[data-remove]');if(b&&draft.filter(p=>p.kind!=='none').length>1){draft.splice(+b.dataset.remove,1);dirty=true;drawEditor();}});
+$('add-option').onclick=()=>{if(draft.length>=12)return;draft.splice(draft.length-1,0,{id:'option_'+crypto.randomUUID(),title:'Новый приз',label:'Приз',name:'Новый приз',short:'Приз',value:100,color:'#698b7d',kind:'experience'});dirty=true;drawEditor();};
+$('reload-menu').onclick=loadMenu;
+$('menu-form').onsubmit=async e=>{e.preventDefault();$('save-menu').disabled=true;try{const version=await saveMenu(draft,draftVersion,{markup:Number($('markup').value)});loadMenu();$('menu-feedback').textContent=`Saved as v${version}. New spins use these prices and calculated chances.`;}catch(e){$('menu-feedback').textContent=e.message;}finally{preview();}};
+subscribe(()=>{if(dirty){if(read().version!==draftVersion)$('menu-feedback').textContent='The wheel changed elsewhere. Discard changes to load the latest menu before saving.';}else loadMenu();});loadMenu();
