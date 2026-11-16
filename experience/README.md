@@ -2,6 +2,8 @@
 
 A buildless, browser-local implementation of three distinct interfaces. The original demo and calculator remain available unchanged.
 
+How this prototype's pricing relates to the shared model in `calc/`: it is one configuration of that model (chances inversely proportional to price, 20% overhead above menu value, an empty sector). The derivation is in `docs/model.md`, section «Альтернативная модель: наценка поверх меню». The code here still uses its own formula.
+
 Serve the repository over localhost (Web Crypto and Web Locks require a secure context):
 
 ```sh

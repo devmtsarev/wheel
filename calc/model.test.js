@@ -53,3 +53,122 @@ test('валидатор: меню-пример проходит, джекпот
   const risky = items.map((i) => i.p === 5 ? { p: 5, w: 18 } : i.p === 500 ? { p: 500, w: 6 } : i), rb = M.base(Object.assign({}, D, { items: risky }));
   const r = M.validate(risky, rb); near(rb.EV, 70.1, 1e-9); near(rb.CV, 1.69, 0.005); near(r.jackpotShare, 0.428, 0.0005);
   assert.deepEqual(r.errors, ['consolation', 'jackpot']); });
+
+// ---------- политика шансов, пустой сектор, маржа над себестоимостью, спрос ----------
+const PR = [5, 15, 20, 40, 60, 100, 200, 500];
+const pol = (gamma, z, extra) => M.base(Object.assign({}, D, { items: M.policyItems(PR, gamma), z }, extra));
+test('политика шансов q ∝ C^−γ: γ = 0 равные шансы, γ = 1 шанс обратно пропорционален цене', () => {
+  const q0 = M.chancePolicy(PR, 0), q1 = M.chancePolicy(PR, 1);
+  for (const q of q0) near(q, 0.125, 1e-12);
+  near(q1[0] / q1[1], 3, 1e-9); near(q1[0] / q1[7], 100, 1e-9); near(q1[7], 0.005329, 1e-6);
+  near(q1.reduce((s, q, i) => s + q * PR[i], 0), 21.314, 0.001); // равный вклад: EV = n / Σ(1/C)
+  for (let i = 0; i < 8; i++) near(q1[i] * PR[i], 21.314 / 8, 0.001);
+});
+test('кривая EV(γ) и горб CV: EV 117,5 → 49,7 → 21,3 → 7,8; CV 1,33 → 1,87 → 2,12 → 1,31', () => {
+  for (const [g, ev, cv] of [[0, 117.5, 1.33], [0.5, 49.7, 1.869], [1, 21.3, 2.124], [2, 7.8, 1.313]]) {
+    const b1 = pol(g, 0); near(b1.EV, ev, 0.05); near(b1.CV, cv, 0.001); }
+  assert.ok(pol(1, 0).CV > pol(0.5, 0).CV && pol(1, 0).CV > pol(1.5, 0).CV); // вершина горба около γ = 1
+});
+test('пустой сектор z: EV сжимается в (1 − z), CV растёт, валидатор отмечает empty', () => {
+  const b0 = pol(1, 0), b2 = pol(1, 0.2);
+  near(b2.EV, b0.EV * 0.8, 1e-9); near(b2.CV, 2.43, 0.005); near(b2.Q[b2.Q.length - 1], 0.2, 1e-12); assert.equal(b2.P[b2.P.length - 1], 0);
+  assert.ok(M.validate(M.policyItems(PR, 1), b2).errors.includes('empty'));
+  assert.ok(!M.validate(M.policyItems(PR, 1), b2, { emptyMax: 0.25 }).errors.includes('empty'));
+});
+test('модель друга как точка (γ = 1, z ≈ 0,218, k = 1,2): цена 20, EV 16,67, CV 2,46, риск серии 0,197%', () => {
+  const H = PR.reduce((s, c) => s + 1 / c, 0), Sf = Math.floor(0.8 * 1.2 * 8 / H); assert.equal(Sf, 20);
+  const z = 1 - Sf * H / (1.2 * 8); near(z, 0.2181, 0.0001);
+  const fb = pol(1, z); near(fb.EV, 16.6667, 0.0001); near(fb.CV, 2.4596, 0.0005);
+  near(M.lossProb(fb.tails, 20, 30, 0.4), 0.00197, 0.00002);
+  assert.equal(M.priceForK(fb, 1.2, 1.2).S, 20);           // при потолке k_max = 1,2 наша формула даёт его цену
+  assert.equal(M.priceForK(fb, 1.2).S, 16);                // при нашем потолке k_max = 1 цена срезается до ⌊EV⌋
+  assert.deepEqual(M.validate(M.policyItems(PR, 1), fb).errors, ['cv', 'empty']);
+});
+test('маржа над себестоимостью: k = μ(1 + m); при k > 1 параметр μ остаётся в модели', () => {
+  near(M.kOfMargin(0.4, 1), 0.8, 1e-12); near(M.marginOfK(0.4, 1.2), 2, 1e-12); near(M.marginOfK(0.4, 0.4), 0, 1e-12);
+  for (const g of [0, 0.5, 1, 2]) { const q = M.chancePolicy(PR, g), r = M.marginPrice(PR, q, 0.4, 1); near(r.k, 0.8, 1e-9); near(r.margin, 1, 1e-9); }
+  const fb = pol(1, 0.2181), r = M.marginPrice(fb.P, fb.Q, 0.4, 2); near(r.k, 1.2, 1e-9); near(r.cost, 0.4 * fb.EV, 1e-9); // пустой сектор затрат не несёт
+});
+test('маржа по пунктам: k зависит от γ, γ подбирается под целевую лояльность', () => {
+  const mu = [0.2, 0.3, 0.3, 0.4, 0.4, 0.4, 0.5, 0.6], m = [1.5, 1.2, 1.2, 1, 1, 1, 0.8, 0.5]; // r_i/C_i от 0,5 до 0,9
+  const k0 = M.marginPrice(PR, M.chancePolicy(PR, 0), mu, m).k, k2 = M.marginPrice(PR, M.chancePolicy(PR, 2), mu, m).k;
+  assert.ok(k0 > k2); near(k0, 0.868, 0.001); near(k2, 0.5985, 0.0005);
+  const g = M.gammaForK(PR, mu, m, 0.8); near(M.marginPrice(PR, M.chancePolicy(PR, g), mu, m).k, 0.8, 1e-6); near(g, 0.697, 0.002);
+  assert.equal(M.gammaForK(PR, mu, m, 0.95), null); // такой k при этих маржах недостижим
+  const ct = M.costTails(PR, M.chancePolicy(PR, g), mu); near(M.lossProbCost(ct, 28, 30), 0.068, 0.001); assert.ok(M.lossProbCost(ct, 35, 30) < M.lossProbCost(ct, 28, 30));
+});
+test('спрос и динамическая цена: ε восстанавливается, шаг идёт к цене равновесия по ступеням', () => {
+  const obs = [30, 40, 50].map((S) => ({ S, rate: 600 * Math.pow(S, -1.5) * 60 })), fit = M.fitDemand(obs);
+  near(fit.eps, 1.5, 1e-9); near(M.demandAt(fit, 40), obs[1].rate, 1e-6);
+  assert.equal(M.fitDemand([{ S: 40, rate: 30 }, { S: 40, rate: 32 }]), null);
+  const cap = M.demandAt(fit, 46); near(M.clearingPrice(fit, cap), 46, 1e-6);
+  const o = { fit, capacity: cap, lo: 31, hi: 50, steps: [31, 36, 40, 45, 50] };
+  assert.equal(M.dynamicStep(Object.assign({ current: 40 }, o)), 45);  // равновесие 46 ≥ ступени 45
+  assert.equal(M.dynamicStep(Object.assign({ current: 45 }, o)), 45);  // до 50 не дошло — стоим
+  assert.equal(M.dynamicStep(Object.assign({ current: 50 }, o)), 50);  // равновесие 46 выше ступени 45 — вниз не идём (гистерезис)
+  assert.equal(M.dynamicStep(Object.assign({ current: 50 }, o, { capacity: M.demandAt(fit, 44) })), 45); // равновесие 44 — шаг вниз
+  assert.equal(M.dynamicStep(Object.assign({ current: 45 }, o, { capacity: cap / 100 })), 50); // спрос много выше — но не выше потолка
+  near(M.capacityPerHour([0.5, 0.5], [60, 180], 0.5), 15, 1e-9);
+});
+
+test('условие нормировки, поправки по пунктам и подгонка γ', () => {
+  for (const g of [0, 0.5, 1, 2.5]) near(M.chancePolicy(PR, g).reduce((a, x) => a + x, 0), 1, 1e-12);
+  near(pol(1, 0.2).Q.reduce((a, x) => a + x, 0), 1, 1e-12);                       // с пустым сектором сумма тоже 1
+  near(M.fitGamma(PR, M.chancePolicy(PR, 0.7)), 0.7, 1e-9); near(M.fitGamma(b.P, b.Q), 0.5, 0.01); // ручное меню ≈ γ 0,5
+  const adj = [1, 1, 1, 1, 1, 1, 1, 0.63], q = M.chancePolicy(PR, 0.5, adj);         // джекпот прижат на 37%
+  near(q[7], 0.02, 0.0005); near(M.stats(PR, q).CV, 1.79, 0.005);                  // CV 1,87 → 1,79 одним прижатым пунктом
+});
+test('пустой сектор выносится за скобки: EV = (1 − z)·EV0, CV² = (CV0² + z)/(1 − z), маржа от z не зависит', () => {
+  const b0 = pol(1, 0), z = 0.2181, bz = pol(1, z);
+  near(bz.EV, (1 - z) * b0.EV, 1e-9); near(bz.CV ** 2, (b0.CV ** 2 + z) / (1 - z), 1e-9);
+  const Sz = 20, S0 = Sz / (1 - z); near(S0, 25.58, 0.01);                          // та же сделка без пустого сектора
+  near(bz.EV / Sz, b0.EV / S0, 1e-9);                                               // отдача зрителю на токен одинакова
+  near(M.marginPrice(bz.P, bz.Q, 0.4, 2).k, M.marginPrice(b0.P, b0.Q, 0.4, 2).k, 1e-9);
+  near(Sz / b0.EV, 0.938, 0.001); near((Sz / b0.EV) / (1 - z), 1.2, 0.001);            // две базы цены: k = k0 / (1 − z)
+  const zmax = (4 - b.CV ** 2) / 5; near(zmax, 0.287, 0.001);                        // сколько пустоты выдерживает ручное меню до CV = 2
+  near(M.base(Object.assign({}, D, { z: zmax })).CV, 2, 1e-9);
+});
+test('кривая по γ и потолок k_max в коридоре', () => {
+  const c = M.policyCurve(PR, [0, 0.5, 1], { z: 0, mu: 0.4, delta: 0.1, alpha: 0.05, Nh: 30 });
+  assert.deepEqual(c.map((r) => r.smin), [67, 33, 15]); near(c[2].CV, 2.124, 0.001); near(c[2].qTop, 0.005329, 1e-6);
+  const zf = 1 - 20 * PR.reduce((a, c) => a + 1 / c, 0) / 9.6; // точная доля пустого сектора альтернативной модели
+  const fr = M.evaluate(Object.assign({}, D, { items: M.policyItems(PR, 1), z: zf, kmax: 1.2, rho: 1 }));
+  assert.equal(fr.hi, 20); assert.equal(M.evaluate(Object.assign({}, D, { items: M.policyItems(PR, 1), z: zf })).hi, 16);
+});
+
+test('лояльность по пунктам k_i — основная запись, маржа выражается через неё: m_i = k_i/μ_i − 1', () => {
+  const mu = [0.2, 0.3, 0.3, 0.4, 0.4, 0.4, 0.5, 0.6], ki = [0.5, 0.66, 0.66, 0.8, 0.8, 0.8, 0.9, 0.9], q = M.chancePolicy(PR, 0.7);
+  const r = M.loyaltyPrice(PR, q, ki, mu), m = r.marginItems;
+  near(m[0], 1.5, 1e-9); near(m[3], 1, 1e-9); near(m[7], 0.5, 1e-9);                // k_i < 1, а маржа положительна
+  near(r.k, M.marginPrice(PR, q, mu, m).k, 1e-12); near(r.k, 0.80, 0.002);            // та же цена, что через маржу
+  near(M.loyaltyPrice(PR, q, 0.8, 0.4).margin, 1, 1e-9); assert.ok(M.loyaltyPrice(PR, q, 0.3, 0.4).margin < 0); // убыток только при k < μ
+  near(M.gammaForK(PR, ki, 0, 0.8), M.gammaForK(PR, mu, m, 0.8), 1e-9);             // подбор γ напрямую по k_i
+});
+
+test('стартовая конфигурация: шансы из цен с правкой под валидатор', () => {
+  const r = M.suggestChances(PR, { targetPrice: 40, k: 0.8 });                      // цена клика 40 при k = 0,8
+  assert.ok(r.ok); assert.equal(r.price, 40); near(r.gamma, 0.43, 0.01); near(r.EV, 50, 0.3);
+  near(r.jackpotShare, 0.25, 1e-6); near(r.q[7], 0.025, 0.001); near(r.adj[7], 0.63, 0.01); assert.deepEqual(r.notes, ['press']);
+  const sb = M.base(Object.assign({}, D, { items: r.items })); assert.ok(M.validate(r.items, sb).ok);
+  const pr = M.priceForK(sb, 0.8); assert.equal(pr.S, 40); assert.equal(pr.lo, 32);
+  const g0 = M.suggestChances(PR, { gamma: 0 }); assert.ok(g0.ok); near(g0.consolation, 0.2, 0.02); assert.deepEqual(g0.notes.slice(0, 2), ['consolation', 'press']);
+  const g1 = M.suggestChances(PR, { gamma: 1 }); assert.ok(g1.ok); near(g1.CV, 2, 1e-6);            // прижат ровно до порога CV
+  const stuck = M.suggestChances(PR, { gamma: 1, minTop: 0.01 }); assert.ok(!stuck.ok); assert.ok(stuck.notes.includes('unfixable'));
+  const flat = M.suggestChances([10, 20, 30], { gamma: 0.5 }); near(flat.q.reduce((a, x) => a + x, 0), 1, 1e-12);
+  assert.deepEqual(M.variants(PR, {}, { k: [0.8, 1], gamma: [0.4, 0.6] }).map((v) => v.price), [41, 52, 32, 40]);
+});
+
+test('предиктивная модель спроса: свежие наблюдения весят больше, шаг цены срабатывает раньше среднего', () => {
+  const hist = [{ t: 0, S: 40, rate: 30 }, { t: 10, S: 40, rate: 34 }, { t: 20, S: 40, rate: 41 }, { t: 30, S: 40, rate: 48 }];
+  const f = M.forecastDemand(hist, { halfLife: 10, epsPrior: 1.5 });
+  assert.equal(f.epsSource, 'prior'); near(f.vRef, 43.07, 0.01); near(M.demandAt(f, 40), 43.07, 0.01);
+  const cap = M.capacityPerHour([.22, .2, .17, .13, .11, .09, .06, .02], [5, 15, 20, 45, 90, 60, 240, 600], 0.5); near(cap, 32.7, 0.05);
+  near(M.clearingPrice(f, cap), 48.1, 0.1);
+  const o = { capacity: cap, lo: 31, hi: 50, steps: [31, 36, 40, 45, 50], current: 40 };
+  assert.equal(M.dynamicStep(Object.assign({ fit: f }, o)), 45);                     // прогноз: спрос растёт — цена поднимается
+  const flat = { eps: 1.5, a: Math.log(38.25) + 1.5 * Math.log(40) };                 // простое среднее тех же наблюдений
+  assert.equal(M.dynamicStep(Object.assign({ fit: flat }, o)), 40);                   // среднее ещё не видит роста
+  const two = M.forecastDemand(hist.concat([{ t: 40, S: 45, rate: 40 }]));            // появилась вторая цена
+  assert.equal(two.Sref, 45); assert.ok(['observed', 'prior'].includes(two.epsSource));
+  assert.equal(M.forecastDemand([]), null);
+});

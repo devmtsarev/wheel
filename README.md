@@ -1,47 +1,53 @@
 # Колесо призов
 
-Виджет «колесо призов» для вебкам-платформы: демо виджета, модель цены вращения с документом и калькулятор.
+Вендорский виджет «колесо призов» для вебкам-платформы: зритель платит токенами за вращение и получает услугу из меню модели. В репозитории лежат модель цены с документом, калькулятор, описание API, серверная часть и браузерный прототип интерфейсов.
 
-## Страницы
+## С чего начать
 
-| Что | Ссылка |
+| Хочу | Куда идти |
 | --- | --- |
-| Демо интеграции: зритель, оператор, управление и сценарии цены | [experience/demos/](experience/demos/index.html) (после публикации: https://devmtsarev.github.io/wheel/experience/demos/) |
-| Демо колеса: зритель, оператор и управление | https://devmtsarev.github.io/wheel/demo/ |
-| Документ с моделью цены | https://devmtsarev.github.io/wheel/docs/ |
-| Документ в PDF | https://devmtsarev.github.io/wheel/docs/model.pdf |
-| Калькулятор цены вращения | https://devmtsarev.github.io/wheel/calc/ |
-
-Калькулятор принимает параметры в ссылке, например меню с редким джекпотом при μ = 0,45:
-[открыть](https://devmtsarev.github.io/wheel/calc/#items=5:30,10:30,20:25,50:14,2000:1&mu=0.45&delta=0.1&alpha=5&Nh=30&wmin=0&sigma=0.4&f=5&rho=3&c0=0.2&phi=0.3&eps=1.5&load=0.5).
-Формат ссылки описан в [calc/README.md](calc/README.md).
+| Понять математику: откуда берётся цена и шансы | [документ](docs/model.md) (страница: https://devmtsarev.github.io/wheel/docs/, [PDF](docs/model.pdf)) |
+| Покрутить параметры и посмотреть графики | [калькулятор](https://devmtsarev.github.io/wheel/calc/) |
+| Посчитать цены сразу для многих меню | `node calc/price.js calc/menus.example.json` |
+| Посмотреть, как выглядит продукт | [демо](https://devmtsarev.github.io/wheel/demo/): зритель, оператор, управление |
+| Узнать, как платформа подключается к колесу | [api/README.md](api/README.md) и [openapi.yaml](api/openapi.yaml) |
+| Запустить сервер и пройти полный цикл вращения | `cd server && npm ci && npm run demo` |
+| Узнать, что на очереди | [TODO.md](TODO.md) |
 
 ## Папки
 
-- `api/` — описание API: `openapi.yaml` (OpenAPI 3.1), в `api/README.md` — подпись запросов, порядок вращения, вебхуки и WebSocket.
-- `calc/` — модель цены (`model.js`), тесты, калькулятор, пакетный расчёт цены для меню разных моделей (`price.js`).
-- `demo/` — постоянная ссылка на актуальное демо в `experience/`.
-- `docs/` — документ с математикой и графиками: `model.md`, страница `index.html`, `model.pdf`.
+| Папка | Что это | Состояние |
+| --- | --- | --- |
+| [`calc/`](calc/README.md) | Модель цены `model.js` — единственный источник формул. Рядом тесты с числами из документа, калькулятор и пакетный расчёт `price.js` | Рабочая; на неё опираются документ, калькулятор и сервер |
+| [`docs/`](docs/README.md) | Документ с выводом формул, графиками и примерами. Исходник — `model.md` | Актуален для модели в `calc/` |
+| [`api/`](api/README.md) | Контракт между платформой и вендором: OpenAPI 3.1, подпись запросов, порядок вращения, вебхуки, WebSocket | Спецификация; реализована в `server/` |
+| [`server/`](server/README.md) | Серверная часть на Node.js по спецификации из `api/`: цены из `calc/model.js`, доказуемо честный розыгрыш, очередь модели, вебхуки | Работает с хранилищем в памяти; базы данных и панели модели пока нет |
+| [`experience/`](experience/README.md) | Браузерный прототип трёх интерфейсов: колесо зрителя поверх сайта, рабочее место оператора, панель управления | Прототип без сервера: данные в localStorage, своя формула цены |
+| `demo/` | Постоянная ссылка, перенаправляет на `experience/` | — |
 
-Страницы работают, пока репозиторий публичный и в Settings → Pages выбрана ветка `main`, папка `/ (root)`.
+## Как части связаны
 
-## Integration & UI prototype
+- **Одна модель цены.** Документ, калькулятор, `price.js` и сервер считают через `calc/model.js`. Формула меняется в одном месте, тесты проверяют числа документа.
+- **Две формулы цены, одна общая модель.** Прототип в `experience/` считает цену и шансы своей формулой: шанс обратно пропорционален цене пункта, наценка 20% поверх меню, пустой сектор. Общая модель в `calc/` описывает её как одну из своих конфигураций; разбор — в разделе документа «Альтернативная модель: наценка поверх меню». Код `experience/` на общую модель пока не переведён.
+- **Прототип и сервер не соединены.** `experience/` хранит всё в браузере и не вызывает API. Сервер реализует контракт из `api/`: резерв и списание через платформу, вебхуки, WebSocket.
 
-The new [`experience/`](experience/README.md) implements three separate views:
-
-- **Player:** embeddable wheel overlay on a sample host website.
-- **Stream operator:** live prize queue, pause/resume, completion and demo refunds.
-- **Management:** separate dashboard with spending, win rates, reporting, price versions and embed setup.
-
-Run `python3 -m http.server 8774 --bind 127.0.0.1` from the repository and open `http://127.0.0.1:8774/experience/`. The views synchronize in the same browser through local storage. This prototype uses demo tokens and has no production authentication or payment integration.
-
-
-### Demonstration and checks
-
-Open [`experience/demos/`](experience/demos/index.html) for the three-view walkthrough, screenshots and four interactive pricing scenarios. It runs as static files on localhost or GitHub Pages, like the original demo. The pricing sandbox does not alter the active wallet/menu.
+## Проверка
 
 ```sh
+# модель цены и прототип интерфейсов (то же запускает CI)
 node --test calc/model.test.js experience/shared/store.test.mjs experience/embed/wheel.test.mjs experience/shared/variance.test.mjs
+node experience/scripts/audit-variance.mjs
+
+# сервер
+cd server && npm ci && npm test
 ```
 
-See [changes and demo verification](experience/CHANGES.md). The new automatic inverse-price model is separate from the original `calc/` model and the server contract in `api/`; this PR does not implement that backend.
+Прототип интерфейсов запускается локально: `python3 -m http.server 8774 --bind 127.0.0.1` из корня репозитория, затем `http://127.0.0.1:8774/experience/`. Подробности, сценарии и скриншоты — в [experience/README.md](experience/README.md) и [experience/CHANGES.md](experience/CHANGES.md).
+
+## Страницы GitHub Pages
+
+Работают, пока репозиторий публичный и в Settings → Pages выбрана ветка `main`, папка `/ (root)`.
+
+- Документ: https://devmtsarev.github.io/wheel/docs/
+- Калькулятор: https://devmtsarev.github.io/wheel/calc/ — принимает параметры в ссылке, формат описан в [calc/README.md](calc/README.md)
+- Демо: https://devmtsarev.github.io/wheel/demo/ и галерея сценариев https://devmtsarev.github.io/wheel/experience/demos/

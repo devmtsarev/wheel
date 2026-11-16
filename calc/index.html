@@ -94,6 +94,14 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
           <div id="c-corr"></div>
           <div class="legend"><span><i class="box" style="background:var(--lo-soft)"></i>закрыто снизу</span><span><i class="box" style="background:var(--hi-soft)"></i>закрыто сверху</span><span><i class="box" style="background:var(--accent-soft)"></i>допустимый коридор</span><span><i style="background:var(--accent)"></i>оптимум</span><span><i style="background:var(--ink)"></i>выбранная цена</span></div>
         </div>
+        <div class="card"><h2>Цена по крутизне шансов: S = k · EV(γ)</h2>
+          <p>Что стало бы с ценой, если шансы этого меню вывести из цен с разной крутизной γ. Чем круче γ, тем дешевле средний приз и вращение. Точка — текущее колесо. Шкала логарифмическая.</p>
+          <div id="c-gprice"></div>
+          <div class="legend"><span><i style="background:var(--accent)"></i>цена = EV (k = 1)</span><span><i style="background:var(--hi)"></i>k = 0,8</span><span><i style="background:var(--lo)"></i>потолок k_max, если выше 1</span><span><i style="background:var(--series2)"></i>S_min</span><span><i class="box" style="background:var(--accent-soft)"></i>от S_min до потолка</span></div></div>
+        <div class="card"><h2>Горб CV по крутизне шансов</h2>
+          <p>Относительный разброс стоимости приза. Максимум около γ = 1: джекпот ещё реален, но уже далёк от среднего. Выше 2,0 валидатор колесо не пропускает.</p>
+          <div id="c-gcv"></div>
+          <div class="legend"><span><i style="background:var(--accent)"></i>CV при текущем пустом секторе</span><span><i style="background:var(--series2)"></i>без пустого сектора</span></div></div>
         <div class="card"><h2>Выгода платформы по цене</h2>
           <p>Прирост дохода платформы минус плата вендору, в токенах на 100 вращений, которые были бы при цене, равной средней стоимости приза.</p>
           <div id="c-gain"></div></div>
@@ -148,10 +156,11 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
   }
   // «Риск серии»: точное распределение суммы призов за N вращений (свёртка).
   // Возвращает для каждой длины серии хвостовые суммы: tail[N][x] = Pr(P_N >= x)
-  function buildTails(P, Q) {
+  // maxN ограничивает длину серии (для кривых по γ, где нужна только одна длина)
+  function buildTails(P, Q, maxN) {
     const maxP = Math.max(...P), keep = new Set(SERIES), tails = {};
     let cur = new Float64Array(1); cur[0] = 1;
-    for (let n = 1; n <= SERIES[SERIES.length - 1]; n++) {
+    for (let n = 1; n <= (maxN || SERIES[SERIES.length - 1]); n++) {
       const nx = new Float64Array(cur.length + maxP);
       for (let j = 0; j < P.length; j++) {
         const p = P[j], q = Q[j]; if (!q) continue;
@@ -209,11 +218,13 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
   const cache = { key: '', tails: null };
   // всё, что зависит только от меню, затрат и риска
   function base(p) {
-    const { P, Q } = normalize(p.items);
+    const n0 = normalize(p.items), z = p.z > 0 ? Math.min(p.z, 0.99) : 0;
+    // пустой сектор: пункт с ценой 0 и шансом z, остальные шансы сжимаются в (1 − z)
+    const P = z > 0 ? n0.P.concat(0) : n0.P, Q = z > 0 ? n0.Q.map((q) => q * (1 - z)).concat(z) : n0.Q;
     const key = P.join(',') + '|' + Q.map((q) => q.toFixed(9)).join(',');
     if (key !== cache.key) { cache.tails = buildTails(P, Q); cache.key = key; }
     const s = stats(P, Q), tails = cache.tails;
-    return { P, Q, tails, EV: s.EV, sd: s.sd, CV: s.CV, maxP: s.maxP,
+    return { P, Q, z, tails, EV: s.EV, sd: s.sd, CV: s.CV, maxP: s.maxP,
       bMenu: menuGuard(P, Q), bAvg: avgFloor(p.mu, p.delta, s.EV),
       bRisk: riskFloor(tails, p.Nh, p.mu, p.alpha, s.maxP), Sw: winCeiling(P, Q, p.wmin) };
   }
@@ -221,15 +232,17 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
   function solve(b, e) {
     const bRoi = roiFloorK(e) * b.EV;
     const lo0 = Math.ceil(Math.max(b.bMenu, b.bAvg, b.bRisk) - EPS);      // без требования к ROI
-    const lo = Math.ceil(Math.max(lo0, bRoi) - EPS), hi = Math.floor(Math.min(b.EV, b.Sw) + EPS);
+    const lo = Math.ceil(Math.max(lo0, bRoi) - EPS), hi = Math.floor(Math.min((e.kmax > 0 ? e.kmax : 1) * b.EV, b.Sw) + EPS);
     const feasible = lo <= hi; let opt = NaN, optG = NaN;
     for (let S = feasible ? lo : lo0; S <= hi; S++) { const g = gain(S, b.EV, e); if (!(g <= optG + EPS)) { opt = S; optG = g; } }
     return { bRoi, lo, hi, lo0, feasible, opt, optG, capS: capacityPrice(b.EV, e.eps, e.load) };
   }
   // «Расчёт цены для любой модели»: S(k) = min(S_max, max(S_min, round(k·EV)))
   // b — результат base(); возвращает цену, границы и то, какая граница сработала
-  function priceForK(b, k) {
-    const lo = Math.ceil(Math.max(b.bMenu, b.bAvg, b.bRisk) - EPS), hi = Math.floor(Math.min(b.EV, b.Sw) + EPS);
+  // kmax — потолок цены в долях EV: 1 значит «не дороже меню»; больше 1 — маржа поверх меню-стоимости
+  function priceForK(b, k, kmax) {
+    const cap = kmax > 0 ? kmax : 1;
+    const lo = Math.ceil(Math.max(b.bMenu, b.bAvg, b.bRisk) - EPS), hi = Math.floor(Math.min(cap * b.EV, b.Sw) + EPS);
     const raw = Math.round(k * b.EV), feasible = lo <= hi;
     const S = feasible ? Math.min(hi, Math.max(lo, raw)) : NaN;
     const floorBy = b.bRisk >= b.bAvg - EPS && b.bRisk >= b.bMenu - EPS ? 'risk' : b.bAvg >= b.bMenu ? 'avg' : 'menu';
@@ -238,32 +251,210 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
   // «Валидатор колеса»: правила, которые проверяются по меню и шансам.
   // Роль пункта задаётся полем role ('consolation' | 'jackpot'); без него
   // утешительным считается самый дешёвый пункт, джекпотом самый дорогой.
-  const LIMITS = { consolationMin: 0.20, jackpotShareMax: 0.25, cvMax: 2.0 };
+  const LIMITS = { consolationMin: 0.20, jackpotShareMax: 0.25, cvMax: 2.0, emptyMax: 0, kMax: 1 };
   function validate(items, b, lim) {
     const L = Object.assign({}, LIMITS, lim), its = items.filter((i) => i.p >= 1 && i.w > 0);
     const W = its.reduce((s, i) => s + i.w, 0) || 1, ps = its.map((i) => Math.round(i.p));
     const pMin = Math.min(...ps), pMax = Math.max(...ps);
     const hasC = its.some((i) => i.role === 'consolation'), hasJ = its.some((i) => i.role === 'jackpot');
     let consolation = 0, jackpot = 0;
+    const live = 1 - (b.z || 0); // доля вращений с призом; шансы пунктов считаются с учётом пустого сектора
     its.forEach((i, j) => {
-      if (hasC ? i.role === 'consolation' : ps[j] === pMin) consolation += i.w / W;
-      if (hasJ ? i.role === 'jackpot' : ps[j] === pMax) jackpot += ps[j] * i.w / W;
+      if (hasC ? i.role === 'consolation' : ps[j] === pMin) consolation += live * i.w / W;
+      if (hasJ ? i.role === 'jackpot' : ps[j] === pMax) jackpot += live * ps[j] * i.w / W;
     });
     const jackpotShare = jackpot / b.EV, errors = [];
     if (consolation < L.consolationMin - EPS) errors.push('consolation');
     if (jackpotShare > L.jackpotShareMax + EPS) errors.push('jackpot');
     if (b.CV > L.cvMax + EPS) errors.push('cv');
-    if (!priceForK(b, 1).feasible) errors.push('price');
-    return { ok: errors.length === 0, consolation, jackpotShare, cv: b.CV, errors };
+    if ((b.z || 0) > L.emptyMax + EPS) errors.push('empty');
+    if (!priceForK(b, 1, L.kMax).feasible) errors.push('price');
+    return { ok: errors.length === 0, consolation, jackpotShare, cv: b.CV, empty: b.z || 0, errors };
+  }
+  // ---------- «Политика шансов»: шансы из цен ----------
+  // q_i ∝ C_i^(−γ). γ = 0 — равные шансы; γ = 1 — шанс обратно пропорционален цене
+  // (равный вклад пунктов в EV); γ > 1 — дорогие пункты ещё реже. Возвращает веса с суммой 1.
+  // adj — необязательные поправки по пунктам a_i (1 — по правилу, меньше 1 — пункт «прижат»):
+  // q_i = a_i·C_i^(−γ) / Σ_j a_j·C_j^(−γ). Деление на сумму и есть условие Σ q_i = 1.
+  function chancePolicy(prices, gamma, adj) {
+    const w = prices.map((c, i) => (adj ? adj[i] : 1) * Math.pow(c, -gamma)), W = w.reduce((a, b) => a + b, 0);
+    return w.map((x) => x / W);
+  }
+  // какому γ ближе всего заданные шансы: наклон ln q по ln C (метод наименьших квадратов)
+  function fitGamma(P, Q) {
+    const pts = P.map((p, i) => [p, Q[i]]).filter(([p, q]) => p > 0 && q > 0);
+    if (new Set(pts.map((x) => x[0])).size < 2) return NaN;
+    const x = pts.map((v) => Math.log(v[0])), y = pts.map((v) => Math.log(v[1])), n = pts.length;
+    const mx = x.reduce((a, b) => a + b, 0) / n, my = y.reduce((a, b) => a + b, 0) / n;
+    return -x.reduce((a, v, i) => a + (v - mx) * (y[i] - my), 0) / x.reduce((a, v) => a + (v - mx) ** 2, 0);
+  }
+  // кривые по γ для графиков «коридор цены» и «горб CV»: EV, CV и S_min при шансах из цен.
+  // o: {z, mu, delta, alpha, Nh, floorAt} — floorAt: значения γ, где считать S_min (расчёт дорогой)
+  function policyCurve(prices, gammas, o) {
+    const z = o.z > 0 ? Math.min(o.z, 0.99) : 0, need = o.floorAt ? new Set(o.floorAt.map((g) => g.toFixed(3))) : null;
+    return gammas.map((g) => {
+      const q = chancePolicy(prices, g, o.adj), P = z > 0 ? prices.concat(0) : prices, Q = z > 0 ? q.map((v) => v * (1 - z)).concat(z) : q;
+      const s = stats(P, Q), row = { g, EV: s.EV, CV: s.CV, qTop: Q[prices.indexOf(Math.max(...prices))] };
+      if (!need || need.has(g.toFixed(3))) {
+        const t = buildTails(P, Q, o.Nh);
+        row.smin = Math.ceil(Math.max(riskFloor(t, o.Nh, o.mu, o.alpha, s.maxP), avgFloor(o.mu, o.delta, s.EV), menuGuard(P, Q)) - EPS);
+      }
+      return row;
+    });
+  }
+  // меню для base()/validate(): цены + политика шансов (веса в миллионных долях)
+  const policyItems = (prices, gamma) => chancePolicy(prices, gamma).map((q, i) => ({ p: prices[i], w: q * 1e6 }));
+
+  // ---------- «Стартовая конфигурация колеса» ----------
+  // Шансы для меню без ручной настройки: правило q ∝ C^(−γ), затем минимальные поправки a_i,
+  // чтобы колесо прошло валидатор. Это точка старта для A/B-тестов, а не оптимум.
+  // o: { gamma | targetPrice, k, z, limits, minTop } — если задана targetPrice (цена вращения в токенах),
+  // γ подбирается так, чтобы round(k·EV) попала в неё; minTop — нижний предел шанса самого дорогого пункта.
+  function shapeStats(prices, q, z) {
+    const live = 1 - z, pMin = Math.min(...prices), pMax = Math.max(...prices);
+    let EV = 0, m2 = 0, cons = 0, top = 0, qTop = 0;
+    prices.forEach((p, i) => { const qi = live * q[i]; EV += qi * p; m2 += qi * p * p; if (p === pMin) cons += qi; if (p === pMax) { top += qi * p; qTop += qi; } });
+    return { EV, CV: Math.sqrt(Math.max(0, m2 - EV * EV)) / EV, consolation: cons, jackpotShare: top / EV, qTop };
+  }
+  function repairChances(prices, gamma, z, L, minTop) {
+    const adj = prices.map(() => 1), notes = [], order = prices.map((p, i) => i).sort((x, y) => prices[y] - prices[x]); // order[0] — самый дорогой пункт
+    const pMin = Math.min(...prices), q = () => chancePolicy(prices, gamma, adj), st = () => shapeStats(prices, q(), z);
+    const bad = (s) => s.jackpotShare > L.jackpotShareMax + EPS || s.CV > L.cvMax + EPS;
+    for (let round = 0; round < 6; round++) {
+      let s = st(), changed = false;
+      if (s.consolation < L.consolationMin - EPS) {                 // приподнять самый дешёвый пункт ровно до порога
+        const w = chancePolicy(prices, gamma, adj), t = L.consolationMin / (1 - z);
+        const wc = prices.reduce((a, p, i) => a + (p === pMin ? w[i] : 0), 0), f = t * (1 - wc) / ((1 - t) * wc);
+        prices.forEach((p, i) => { if (p === pMin) adj[i] *= f; }); notes.push('consolation'); changed = true; s = st();
+      }
+      if (bad(s)) {                                                  // прижать самый дорогой пункт ровно до прохождения порогов
+        const i = order[0], a0 = adj[i], qTopAt = (v) => { adj[i] = v; return shapeStats(prices, q(), z).qTop; };
+        let lo = 1e-9;
+        if (minTop > 0 && qTopAt(a0) > minTop) { let x = 1e-9, y = a0; for (let j = 0; j < 50; j++) { const m = (x + y) / 2; if (qTopAt(m) < minTop) x = m; else y = m; } lo = y; }
+        else if (minTop > 0) lo = a0;                                // шанс уже не выше предела — прижимать нельзя
+        adj[i] = lo;
+        if (bad(st())) { notes.push('unfixable'); break; }           // даже на пределе пороги не проходят: менять нужно меню
+        let hi = a0; for (let j = 0; j < 50; j++) { const m = (lo + hi) / 2; adj[i] = m; if (bad(st())) hi = m; else lo = m; }
+        adj[i] = lo; notes.push('press'); changed = true;
+      }
+      if (!changed) break;
+    }
+    return { adj, q: q(), stats: st(), notes };
+  }
+  function suggestChances(prices, o) {
+    o = o || {}; const z = o.z > 0 ? o.z : 0, L = Object.assign({}, LIMITS, o.limits), k = o.k > 0 ? o.k : 0.8;
+    let gamma = o.gamma == null ? 0.5 : o.gamma, r;
+    if (o.targetPrice > 0) {                                         // EV падает с γ: бисекция по γ под цену клика
+      const f = (g) => k * repairChances(prices, g, z, L, o.minTop).stats.EV - o.targetPrice;
+      let a = 0, b = 3;
+      if (f(a) <= 0) gamma = a; else if (f(b) >= 0) gamma = b;
+      else { for (let j = 0; j < 40; j++) { const m = (a + b) / 2; if (f(m) > 0) a = m; else b = m; } gamma = (a + b) / 2; }
+    }
+    r = repairChances(prices, gamma, z, L, o.minTop);
+    const s = r.stats, ok = s.consolation >= L.consolationMin - 1e-6 && s.jackpotShare <= L.jackpotShareMax + 1e-6 && s.CV <= L.cvMax + 1e-6 && z <= L.emptyMax + EPS;
+    return { gamma, adj: r.adj, q: r.q, items: r.q.map((x, i) => ({ p: prices[i], w: x * 1e6 })), z, k, EV: s.EV, CV: s.CV,
+      consolation: s.consolation, jackpotShare: s.jackpotShare, qTop: s.qTop, price: Math.round(k * s.EV), ok, notes: r.notes };
+  }
+  // варианты для A/B-теста: сетка по k и γ вокруг стартовой точки; каждый вариант — готовое колесо
+  function variants(prices, o, grid) {
+    const out = [];
+    for (const gamma of (grid && grid.gamma) || [o && o.gamma != null ? o.gamma : 0.5])
+      for (const k of (grid && grid.k) || [(o && o.k) || 0.8]) out.push(suggestChances(prices, Object.assign({}, o, { gamma, k, targetPrice: 0 })));
+    return out;
+  }
+
+  // ---------- «Маржа поверх себестоимости» ----------
+  // Себестоимость пункта μ_i·C_i, маржа m_i поверх неё. Цена вращения с гарантированной в среднем
+  // маржой: S = Σ q_i·μ_i·C_i·(1 + m_i). Пустой сектор (цена 0) затрат не несёт.
+  // mu и margin — число (одно на всё меню) или массив по пунктам в порядке P.
+  const at = (v, i) => (Array.isArray(v) ? v[i] : v);
+  function marginPrice(P, Q, mu, margin) {
+    let cost = 0, S = 0, EV = 0;
+    P.forEach((p, i) => { const c = Q[i] * at(mu, i) * p; cost += c; S += c * (1 + at(margin, i)); EV += Q[i] * p; });
+    return { cost, S, EV, k: S / EV, margin: S / cost - 1, muAvg: cost / EV };
+  }
+  // Основная запись — лояльность по пунктам k_i (доля цены по меню, которую колесо выручает за пункт):
+  // S = Σ q_i·k_i·C_i, общий k = S/EV. Маржа — тот же k, выраженный от затрат: m_i = k_i/μ_i − 1
+  // (отрицательна только при k_i < μ_i). k и mu — число или массив по пунктам.
+  function loyaltyPrice(P, Q, k, mu) {
+    let S = 0, EV = 0, cost = 0;
+    P.forEach((p, i) => { S += Q[i] * at(k, i) * p; EV += Q[i] * p; cost += Q[i] * at(mu, i) * p; });
+    return { S, EV, cost, k: S / EV, margin: S / cost - 1, marginItems: P.map((p, i) => at(k, i) / at(mu, i) - 1) };
+  }
+  // при одном μ и одной марже на всё меню связь прямая: k = μ·(1 + m), m = k/μ − 1
+  const kOfMargin = (mu, m) => mu * (1 + m);
+  const marginOfK = (mu, k) => k / mu - 1;
+  // Подбор γ под целевую лояльность k при марже по пунктам: k(γ) = Σ q_i r_i / Σ q_i C_i,
+  // где r_i = μ_i C_i (1 + m_i). Возвращает null, если цель недостижима на [gLo, gHi].
+  function gammaForK(prices, mu, margin, kTarget, gLo, gHi) {
+    const f = (g) => marginPrice(prices, chancePolicy(prices, g), mu, margin).k - kTarget;
+    let a = gLo == null ? 0 : gLo, b = gHi == null ? 3 : gHi, fa = f(a), fb = f(b);
+    if (Math.abs(fa) < 1e-9) return a; if (Math.abs(fb) < 1e-9) return b;
+    if (fa * fb > 0) return null;
+    for (let i = 0; i < 60; i++) { const m = (a + b) / 2, fm = f(m); if (fa * fm <= 0) { b = m; fb = fm; } else { a = m; fa = fm; } }
+    return (a + b) / 2;
+  }
+  // «Риск серии» при себестоимости по пунктам: распределение суммы затрат (в десятых долях токена)
+  function costTails(P, Q, mu) { return buildTails(P.map((p, i) => Math.round(at(mu, i) * p * 10)), Q); }
+  const lossProbCost = (tails, S, N) => lossProb(tails, S, N, 0.1); // убыток: N·S < Σ затрат
+
+  // ---------- «Динамическая цена по кривой спроса» ----------
+  // Оценка спроса по наблюдениям [{S, rate}] (цена, вращений в час): ln rate = a − ε·ln S
+  function fitDemand(obs) {
+    const pts = obs.filter((o) => o.S > 0 && o.rate > 0);
+    if (new Set(pts.map((o) => o.S)).size < 2) return null; // одна цена наклон не определяет
+    const x = pts.map((o) => Math.log(o.S)), y = pts.map((o) => Math.log(o.rate)), n = pts.length;
+    const mx = x.reduce((s, v) => s + v, 0) / n, my = y.reduce((s, v) => s + v, 0) / n;
+    const sxx = x.reduce((s, v) => s + (v - mx) ** 2, 0), sxy = x.reduce((s, v, i) => s + (v - mx) * (y[i] - my), 0);
+    const eps = -sxy / sxx;
+    return { eps, a: my + eps * mx, n };
+  }
+  const demandAt = (fit, S) => Math.exp(fit.a) * Math.pow(S, -fit.eps);
+  // Простая предиктивная модель спроса на лету. history: [{t, S, rate}] — минута эфира, цена и темп
+  // вращений в час за интервал (включая отказы в допуске). Каждое наблюдение приводится к опорной цене
+  // через эластичность, свежие весят больше (полураспад halfLife минут). Эластичность берётся из самих
+  // наблюдений, если в них есть две разные цены и оценка правдоподобна, иначе — априорная epsPrior.
+  // Результат совместим с demandAt, clearingPrice и dynamicStep.
+  function forecastDemand(history, o) {
+    o = o || {}; const pts = history.filter((h) => h.S > 0 && h.rate > 0); if (!pts.length) return null;
+    const now = o.now != null ? o.now : Math.max(...pts.map((h) => h.t)), half = o.halfLife > 0 ? o.halfLife : 10;
+    const own = fitDemand(pts), usable = own && own.eps >= 0.3 && own.eps <= 4;
+    const eps = usable ? own.eps : (o.epsPrior > 0 ? o.epsPrior : 1.5), Sref = pts[pts.length - 1].S;
+    let num = 0, den = 0;
+    for (const h of pts) { const w = Math.pow(0.5, (now - h.t) / half); num += w * h.rate * Math.pow(h.S / Sref, eps); den += w; }
+    const vRef = num / den;
+    return { eps, a: Math.log(vRef) + eps * Math.log(Sref), n: pts.length, vRef, Sref, epsSource: usable ? 'observed' : 'prior' };
+  }
+  // предложение: сколько вращений в час модель успевает исполнить; share — доля эфира под призы
+  const capacityPerHour = (Q, durations, share) => (share == null ? 1 : share) * 3600 / Q.reduce((s, q, i) => s + q * (durations[i] || 0), 0);
+  // цена, при которой спрос равен предложению (Infinity/0, если спрос от цены не зависит)
+  function clearingPrice(fit, capacity) {
+    if (!fit || !(fit.eps > 0)) return fit && demandAt(fit, 1) > capacity ? Infinity : 0;
+    return Math.pow(Math.exp(fit.a) / capacity, 1 / fit.eps);
+  }
+  // один шаг динамической цены: к цене равновесия, но только по объявленным ступеням
+  // и только внутри коридора [lo, hi]; за вызов — не больше одной ступени
+  function dynamicStep(o) {
+    const steps = o.steps.filter((s) => s >= o.lo && s <= o.hi).sort((a, b) => a - b);
+    if (!steps.length) return o.current;
+    const target = Math.min(o.hi, Math.max(o.lo, clearingPrice(o.fit, o.capacity)));
+    let i = steps.indexOf(o.current);
+    if (i < 0) i = steps.reduce((bi, s, j) => (Math.abs(s - o.current) < Math.abs(steps[bi] - o.current) ? j : bi), 0);
+    // гистерезис: вверх — когда равновесная цена дошла до следующей ступени, вниз — когда опустилась до предыдущей
+    if (i < steps.length - 1 && target >= steps[i + 1]) return steps[i + 1];
+    if (i > 0 && target <= steps[i - 1]) return steps[i - 1];
+    return steps[i];
   }
   // полный расчёт. Доли передаются числами от 0 до 1: alpha, f, wmin
   function evaluate(p) {
-    const b = base(p), e = { sigma: p.sigma, f: p.f, rho: p.rho, c0: p.c0, phi: p.phi, eps: p.eps, load: p.load };
+    const b = base(p), e = { sigma: p.sigma, f: p.f, rho: p.rho, c0: p.c0, phi: p.phi, eps: p.eps, load: p.load, kmax: p.kmax };
     return Object.assign({}, b, solve(b, e), { econ: e });
   }
 
   return { SERIES, normalize, stats, buildTails, lossProb, riskFloor, avgFloor, menuGuard, winChance, winCeiling,
-    cannibalization, breakEvenK, roiFloorK, optimumK, volume, capacityPrice, gain, roi, base, solve, evaluate, priceForK, validate, LIMITS };
+    cannibalization, breakEvenK, roiFloorK, optimumK, volume, capacityPrice, gain, roi, base, solve, evaluate, priceForK, validate, LIMITS,
+    chancePolicy, fitGamma, policyCurve, policyItems, suggestChances, variants, loyaltyPrice, marginPrice, kOfMargin, marginOfK, gammaForK, costTails, lossProbCost,
+    fitDemand, forecastDemand, demandAt, capacityPerHour, clearingPrice, dynamicStep };
 });
 
 </script>
@@ -281,7 +472,8 @@ const st = {
     { t: 'Ответ на вопрос', p: 40, w: 13 }, { t: 'Песня (куплет)', p: 60, w: 11 }, { t: 'Танец, 1 минута', p: 100, w: 9 },
     { t: 'Смена образа', p: 200, w: 6 }, { t: 'Джекпот', p: 500, w: 2 }
   ],
-  mu: 0.4, delta: 0.1, alpha: 5, Nh: 30, wmin: 0, sigma: 0.4, f: 5, rho: 3, c0: 0.2, phi: 0.3, eps: 1.5, load: 0.5, S: 50, auto: true
+  mu: 0.4, delta: 0.1, alpha: 5, Nh: 30, wmin: 0, sigma: 0.4, f: 5, rho: 3, c0: 0.2, phi: 0.3, eps: 1.5, load: 0.5, S: 50, auto: true,
+  pol: false, gamma: 0.5, z: 0, kmax: 1
 };
 
 // Готовые меню: те же, что в menus.example.json и в документе
@@ -299,6 +491,10 @@ const PAGES_URL = 'https://devmtsarev.github.io/wheel/calc/';
 let menuKey = 'example';
 
 const GROUPS = [
+  { h: 'Политика шансов', note: 'Шансы можно вывести из цен: q ∝ C^(−γ). Пустой сектор и цена выше меню по умолчанию выключены.', c: [
+    { k: 'gamma', n: 'γ, крутизна: как быстро шанс падает с ценой', min: 0, max: 2.5, step: 0.05, d: 2, hint: '0 — равные шансы, 1 — вдвое дороже значит вдвое реже. Действует, когда включено «Шансы из цен»' },
+    { k: 'z', n: 'z, пустой сектор: вращений без приза', min: 0, max: 40, step: 0.1, d: 1, suf: '%', hint: 'Отдача зрителю на токен та же, что без пустого сектора при цене S / (1 − z)' },
+    { k: 'kmax', n: 'k_max, потолок цены в долях EV', min: 1, max: 1.5, step: 0.05, d: 2, hint: '1 — колесо не дороже меню' } ] },
   { h: 'Затраты и риск', note: 'Задаёт клиент платформы и вендор.', c: [
     { k: 'mu', n: 'μ, доля затрат в цене меню', min: 0.1, max: 1, step: 0.01, d: 2, hint: 'Во сколько обходится приз относительно его цены по меню' },
     { k: 'delta', n: 'δ, запас над μ в среднем', min: 0, max: 0.3, step: 0.01, d: 2 },
@@ -323,8 +519,14 @@ let cur = null;
 const econ = (o) => Object.assign({ sigma: st.sigma, f: st.f / 100, rho: st.rho, c0: st.c0, phi: st.phi, eps: st.eps, load: st.load }, o);
 const loss = (S, N, mu) => M.lossProb(cur.tails, S, N, mu);
 const riskFloor = (N, mu, alpha, maxP) => M.riskFloor(cur.tails, N, mu, alpha, maxP);
+// действующее меню: ручные веса или шансы из цен по γ
+function effItems() {
+  if (!st.pol) return st.items;
+  const live = st.items.filter((i) => i.p >= 1), q = M.chancePolicy(live.map((i) => i.p), st.gamma);
+  return live.map((i, j) => ({ t: i.t, p: i.p, w: q[j] * 1e6 }));
+}
 function model() {
-  const m = M.evaluate({ items: st.items, mu: st.mu, delta: st.delta, alpha: st.alpha / 100, Nh: st.Nh, wmin: st.wmin / 100,
+  const m = M.evaluate({ items: effItems(), z: st.z / 100, kmax: st.kmax, mu: st.mu, delta: st.delta, alpha: st.alpha / 100, Nh: st.Nh, wmin: st.wmin / 100,
     sigma: st.sigma, f: st.f / 100, rho: st.rho, c0: st.c0, phi: st.phi, eps: st.eps, load: st.load });
   cur = m; m.alpha = st.alpha / 100; m.f = st.f / 100; m.wmin = st.wmin / 100;
   m.win = (S) => M.winChance(m.P, m.Q, S); m.gain = (S) => M.gain(S, m.EV, m.econ); m.roi = (S) => M.roi(S, m.EV, m.econ);
@@ -351,14 +553,14 @@ function markers(m, X, y0, y1) { let s = '';
 function xAxis(X, x0, x1, y, title) { let s = ''; for (const v of niceTicks(x0, x1, 7)) s += T(X(v), y + 13, fmt(v), { a: 'middle' });
   return s + T(W - 12, y + 40, title, { a: 'end' }); }
 function yAxis(Y, y0, y1, xl, xr, suf = '', d = 0) { let s = ''; for (const v of niceTicks(y0, y1, 5)) s += L(xl, Y(v), xr, Y(v), v === 0 ? 'series2' : 'grid') + T(xl - 6, Y(v) + 4, fmt(v, d) + suf, { a: 'end' }); return s; }
-function xMax(m) { return Math.ceil(Math.max(m.EV * 1.3, st.S * 1.1, 20) / 5) * 5; }
+function xMax(m) { return Math.ceil(Math.max(m.EV * Math.max(1.3, st.kmax * 1.1), st.S * 1.1, 20) / 5) * 5; }
 
 function drawCorridor(m) {
   W = 860; const x1 = xMax(m), xl = 236, xr = W - 16, X = scale(0, x1, xl, xr), cx = (v) => clamp(X(v), xl, xr);
   const rows = [
     { n: 'Защита меню', v: m.bMenu, lo: 1 }, { n: 'Плюс в среднем', v: m.bAvg, lo: 1 }, { n: 'Риск серии', v: m.bRisk, lo: 1 },
     { n: 'ROI платформы не ниже ' + fmt(st.rho, 1), v: m.bRoi, lo: 1 },
-    { n: 'Не дороже меню', v: m.EV, lo: 0 }, { n: 'Шанс выигрыша не ниже ' + st.wmin + '%', v: m.Sw, lo: 0 } ];
+    { n: st.kmax > 1 ? 'Не дороже ' + fmt(st.kmax, 2) + ' × EV' : 'Не дороже меню', v: st.kmax * m.EV, lo: 0 }, { n: 'Шанс выигрыша не ниже ' + st.wmin + '%', v: m.Sw, lo: 0 } ];
   const top = 34, rh = 26, bot = top + rows.length * rh; let s = '';
   if (m.feasible) s += R(X(m.lo), top - 4, X(m.hi) - X(m.lo) || 2, bot - top + 4, 'var(--accent-soft)', { rx: 3 });
   rows.forEach((r, i) => { const y = top + i * rh + rh / 2;
@@ -373,6 +575,51 @@ function drawCorridor(m) {
   s += markers(m, X, top - 6, bot) + xAxis(X, 0, x1, bot, 'цена вращения, токены');
   if (!m.feasible) s += T((xl + xr) / 2, bot + 40, 'Допустимой цены нет: нижняя граница ' + (isFinite(m.lo) ? m.lo : '∞') + ' выше верхней ' + m.hi, { c: 'bad', a: 'middle', w: 600, size: 12 });
   $('#c-corr').innerHTML = frame(bot + 48, s, 'Коридор допустимой цены вращения');
+}
+// кривые по γ для цен текущего меню; S_min считается на редкой сетке и кешируется (расчёт дорогой)
+let gcache = { key: '', rows: null };
+function gammaCurves(m) {
+  const prices = st.items.filter((i) => i.p >= 1).map((i) => i.p);
+  const key = [prices.join(','), st.z, st.mu, st.delta, st.alpha, st.Nh].join('|');
+  if (gcache.key !== key) {
+    const cost = st.Nh * st.Nh * Math.max(...prices) * prices.length / 2, n = clamp(Math.floor(1.2e8 / cost), 3, 11);
+    const o = { z: st.z / 100, mu: st.mu, delta: st.delta, alpha: st.alpha / 100, Nh: st.Nh };
+    const GAM = seq(0, 2.5, 51);
+    gcache = { key, rows: M.policyCurve(prices, GAM, Object.assign({ floorAt: [] }, o)), rows0: st.z > 0 ? M.policyCurve(prices, GAM, Object.assign({}, o, { z: 0, floorAt: [] })) : null,
+      floor: M.policyCurve(prices, seq(0, 2.5, n), o) };
+  }
+  const g = st.pol ? st.gamma : M.fitGamma(m.P.filter((p) => p > 0), m.Q.slice(0, m.P.filter((p) => p > 0).length));
+  return Object.assign({ g: clamp(isFinite(g) ? g : 0, 0, 2.5), fitted: !st.pol }, gcache);
+}
+function gAxis(X, bot) { let s = ''; for (const v of [0, 0.5, 1, 1.5, 2, 2.5]) s += T(X(v), bot + 13, fmt(v, 1), { a: 'middle' }); return s + T(W - 12, bot + 40, 'γ: 0 — равные шансы, 1 — шанс обратно пропорционален цене', { a: 'end' }); }
+function drawGammaPrice(m) {
+  W = 470; const c = gammaCurves(m), xl = 52, xr = W - 16, top = 20, bot = 250, X = scale(0, 2.5, xl, xr), cap = st.kmax;
+  const lo = Math.max(1, Math.min(st.S, ...c.floor.map((r) => r.smin), ...c.rows.map((r) => 0.8 * r.EV)) * 0.8), hi = Math.max(st.S, ...c.rows.map((r) => cap * r.EV)) * 1.15;
+  const Y = (v) => bot - (Math.log(Math.max(v, lo)) - Math.log(lo)) / (Math.log(hi) - Math.log(lo)) * (bot - top);
+  let s = ''; for (const v of [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]) if (v >= lo && v <= hi) s += L(xl, Y(v), xr, Y(v), 'grid') + T(xl - 6, Y(v) + 4, String(v), { a: 'end' });
+  const fl = c.floor.map((r) => [X(r.g), Y(Math.min(r.smin, cap * r.EV))]), ceil = c.rows.map((r) => [X(r.g), Y(cap * r.EV)]);
+  s += `<path d="${ceil.concat(fl.slice().reverse()).map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('')}Z" fill="var(--accent-soft)"/>`;
+  if (cap > 1) s += path(ceil, 'lo', 2);
+  s += path(c.rows.map((r) => [X(r.g), Y(0.8 * r.EV)]), 'hi', 2) + path(c.rows.map((r) => [X(r.g), Y(r.EV)]), 'accent', 2.5);
+  s += `<path d="${fl.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('')}" stroke="var(--series2)" stroke-width="1.5" stroke-dasharray="5 4" fill="none"/>`;
+  const px = X(c.g), py = Y(st.S), right = px < (xl + xr) / 2;
+  s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="5" fill="var(--ink)" stroke="var(--panel)" stroke-width="2"/>`
+    + T(px + (right ? 9 : -9), py - 9, (c.fitted ? 'ручные шансы ≈ γ ' : 'γ = ') + fmt(c.g, 2) + ': ' + st.S + ' ток., k = ' + fmt(st.S / m.EV, 2), { c: 'ink', a: right ? 'start' : 'end', w: 600 });
+  s += gAxis(X, bot);
+  $('#c-gprice').innerHTML = frame(bot + 48, s, 'Цена вращения по крутизне шансов γ');
+}
+function drawGammaCV(m) {
+  W = 470; const c = gammaCurves(m), xl = 52, xr = W - 16, top = 20, bot = 250, X = scale(0, 2.5, xl, xr);
+  const ymax = Math.max(2.4, m.CV * 1.1, ...c.rows.map((r) => r.CV * 1.08)), Y = scale(0, ymax, bot, top);
+  let s = R(xl, top, xr - xl, Y(2) - top, 'var(--bad)', { op: 0.08 }) + yAxis(Y, 0, ymax, xl, xr, '', 1);
+  s += L(xl, Y(2), xr, Y(2), 'bad', { dash: '4 3' }) + T(xr, Y(2) - 5, 'валидатор: CV ≤ 2,0', { c: 'bad', a: 'end' });
+  if (c.rows0) s += path(c.rows0.map((r) => [X(r.g), Y(r.CV)]), 'series2', 1.5);
+  s += path(c.rows.map((r) => [X(r.g), Y(r.CV)]), 'accent', 2.5);
+  const px = X(c.g), py = Y(m.CV), right = px < (xl + xr) / 2;
+  s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="5" fill="var(--ink)" stroke="var(--panel)" stroke-width="2"/>`
+    + T(xl + 6, bot - 8, 'текущее колесо: ' + (c.fitted ? 'ручные шансы ≈ γ ' : 'γ = ') + fmt(c.g, 2) + ', CV ' + fmt(m.CV, 2), { c: 'ink', w: 600 });
+  s += gAxis(X, bot);
+  $('#c-gcv').innerHTML = frame(bot + 48, s, 'Относительный разброс CV по крутизне шансов γ');
 }
 function drawGain(m) {
   W = 470; const x1 = xMax(m), x0 = Math.max(2, Math.floor(m.bMenu / 2)), xl = 52, xr = W - 16, top = 26, bot = 250, pts = [];
@@ -424,7 +671,7 @@ function drawHeat0(m) {
   const mus = seq(0.2, 0.8, 13), ns = [5, 10, 15, 20, 30, 40, 50, 60, 80, 100];
   heat($('#c-hm0'), 'Нижняя граница цены по μ и длине серии', mus, ns, 'μ, доля затрат в цене меню', 'длина серии', (mu, n) => {
     const S = riskFloor(n, mu, m.alpha, m.maxP);
-    if (S > m.EV) return { fill: 'var(--series2)', op: 0.28, t: String(S), c: 'muted' };
+    if (S > st.kmax * m.EV) return { fill: 'var(--series2)', op: 0.28, t: String(S), c: 'muted' };
     return { fill: 'var(--lo)', op: 0.1 + 0.6 * clamp(S / m.EV, 0, 1), t: String(S) }; }, st.mu, st.Nh, 2, 0);
 }
 function drawHeat1(m) {
@@ -466,6 +713,9 @@ function buildControls() {
     <div class="row"><span class="note">Готовые меню:</span>${Object.keys(PRESETS).map((k) => `<button type="button" data-preset="${k}">${esc(PRESETS[k].n)}</button>`).join('')}</div></div>
     <div class="group"><h2>Меню колеса</h2><p class="note">Цена пункта по меню и его вес. Шансы считаются из весов.</p>
     <table class="menu"><thead><tr><th>Пункт</th><th class="n">Цена</th><th class="n">Вес</th><th>Шанс</th><th class="x"></th></tr></thead><tbody id="menu"></tbody></table>
+    <p class="note" id="m-empty"></p>
+    <label class="chk"><input type="checkbox" id="in-pol"> Шансы из цен по γ (веса не используются)</label>
+    <div class="row"><button type="button" id="suggest">Подобрать веса: γ и правка под валидатор</button></div><p class="note" id="m-sug"></p>
     <div class="row"><button type="button" id="add">Добавить пункт</button><button type="button" id="reset">Сбросить всё</button></div></div>`;
   for (const g of GROUPS) { h += `<div class="group"><h2>${esc(g.h)}</h2>${g.note ? `<p class="note">${esc(g.note)}</p>` : ''}`;
     for (const c of g.c) h += `<div class="ctl"><div class="top"><label for="in-${c.k}">${esc(c.n)}</label><b id="v-${c.k}"></b></div>
@@ -475,6 +725,13 @@ function buildControls() {
   for (const g of GROUPS) for (const c of g.c) $('#in-' + c.k).addEventListener('input', (e) => { st[c.k] = +e.target.value; update(); });
   $('#in-S').addEventListener('input', (e) => { st.S = +e.target.value; st.auto = false; update(); });
   $('#in-auto').addEventListener('change', (e) => { st.auto = e.target.checked; update(); });
+  $('#in-pol').addEventListener('change', (e) => { st.pol = e.target.checked; st.auto = true; update(); });
+  $('#suggest').addEventListener('click', () => { const live = st.items.filter((i) => i.p >= 1);
+    const r = M.suggestChances(live.map((i) => i.p), { gamma: st.gamma, z: st.z / 100, k: 0.8 });
+    live.forEach((it, j) => { it.w = Math.max(1, Math.round(r.q[j] * 10000)); }); st.pol = false; st.auto = true; menuKey = '';
+    const did = []; if (r.notes.includes('consolation')) did.push('самый дешёвый пункт приподнят до 20%'); if (r.notes.includes('press')) did.push('самый дорогой прижат, поправка ' + fmt(Math.min(...r.adj), 2));
+    $('#m-sug').textContent = 'Веса записаны по γ = ' + fmt(st.gamma, 2) + (did.length ? ': ' + did.join(', ') : ', правка не понадобилась') + (r.ok ? '.' : '. Валидатор всё равно не проходит: нужно менять меню.');
+    renderMenu(); update(); });
   $('#add').addEventListener('click', () => { menuKey = ''; st.items.push({ t: 'Новый пункт', p: 50, w: 5 }); renderMenu(); update(); });
   $('#reset').addEventListener('click', () => { Object.assign(st, JSON.parse(DEFAULTS)); menuKey = 'example'; renderMenu(); update(); });
   $('#controls').addEventListener('click', (e) => { const b = e.target.closest('button[data-preset]'); if (!b) return;
@@ -491,7 +748,7 @@ function buildControls() {
 function renderMenu() {
   $('#menu').innerHTML = st.items.map((it, i) => `<tr><td><input id="m-t-${i}" data-i="${i}" data-k="t" value="${esc(it.t)}" aria-label="Название пункта"></td>
     <td><input id="m-p-${i}" data-i="${i}" data-k="p" type="number" min="1" max="5000" value="${it.p}" aria-label="Цена по меню"></td>
-    <td><input id="m-w-${i}" data-i="${i}" data-k="w" type="number" min="0" max="1000" value="${it.w}" aria-label="Вес"></td>
+    <td><input id="m-w-${i}" data-i="${i}" data-k="w" type="number" min="0" max="1000000" value="${it.w}" aria-label="Вес"></td>
     <td class="q" id="m-q-${i}"></td><td><button type="button" class="x" data-del="${i}" aria-label="Удалить пункт">×</button></td></tr>`).join('');
 }
 const DEFAULTS = JSON.stringify(st);
@@ -500,13 +757,17 @@ function update() { cancelAnimationFrame(raf); raf = requestAnimationFrame(rende
 function render() {
   let m = model();
   if (st.auto && isFinite(m.opt)) st.S = m.opt;
-  const sMax = Math.max(60, Math.ceil(m.EV * 1.3 / 5) * 5); st.S = clamp(Math.round(st.S), 1, sMax);
+  const sMax = Math.max(60, Math.ceil(m.EV * Math.max(1.3, st.kmax * 1.1) / 5) * 5); st.S = clamp(Math.round(st.S), 1, sMax);
   const inS = $('#in-S'); inS.max = sMax; inS.value = st.S; $('#v-S').textContent = st.S; $('#in-auto').checked = st.auto;
   for (const g of GROUPS) for (const c of g.c) { $('#in-' + c.k).value = st[c.k]; $('#v-' + c.k).textContent = fmt(st[c.k], c.d) + (c.suf || ''); }
-  const Wsum = st.items.reduce((s, i) => s + (i.p >= 1 && i.w > 0 ? i.w : 0), 0) || 1;
-  st.items.forEach((it, i) => { const el = $('#m-q-' + i); if (el) el.textContent = it.p >= 1 && it.w > 0 ? pct(it.w / Wsum, 1) : '—'; });
+  $('#in-pol').checked = st.pol;
+  const eff = effItems(), Wsum = eff.reduce((s, i) => s + (i.p >= 1 && i.w > 0 ? i.w : 0), 0) || 1, live = 1 - st.z / 100; let j = 0;
+  st.items.forEach((it, i) => { const el = $('#m-q-' + i), wi = $('#m-w-' + i); if (wi) wi.disabled = st.pol; if (!el) return;
+    const e = st.pol ? (it.p >= 1 ? eff[j++] : null) : it;
+    const q = e && e.p >= 1 && e.w > 0 ? live * e.w / Wsum : NaN; el.textContent = isFinite(q) ? pct(q, q < 0.01 ? 2 : 1) : '—'; });
+  $('#m-empty').textContent = st.z > 0 ? 'Без приза: ' + fmt(st.z, 1) + '% вращений. Шансы пунктов показаны с учётом пустого сектора.' : '';
   syncLink();
-  drawTiles(m); drawCorridor(m); drawGain(m); drawRisk(m); drawWin(m); drawHeat0(m); drawHeat1(m); drawHeat2(m);
+  drawTiles(m); drawCorridor(m); drawGammaPrice(m); drawGammaCV(m); drawGain(m); drawRisk(m); drawWin(m); drawHeat0(m); drawHeat1(m); drawHeat2(m);
 }
 
 // ---------- параметры в ссылке: #menu=jackpot&mu=0.45&S=40 ----------
@@ -527,6 +788,7 @@ function readParams() {
   for (const c of KEYS) if (q.has(c.k)) { const v = +q.get(c.k); if (isFinite(v)) { st[c.k] = clamp(v, c.min, c.max); any = true; } }
   if (q.has('S')) { const v = +q.get('S'); if (isFinite(v)) { st.S = v; st.auto = false; any = true; } }
   if (q.has('auto')) { st.auto = q.get('auto') !== '0'; any = true; }
+  if (q.has('pol')) { st.pol = q.get('pol') === '1'; any = true; }
   return any;
 }
 function paramString() {
@@ -534,6 +796,7 @@ function paramString() {
   const its = st.items.filter((i) => i.p >= 1 && i.w > 0).map((i) => i.p + ':' + i.w).join(',');
   const parts = ['items=' + its];
   for (const c of KEYS) parts.push(c.k + '=' + String(+(+st[c.k]).toFixed(4)));
+  if (st.pol) parts.push('pol=1');
   if (!st.auto) parts.push('S=' + st.S);
   return parts.join('&');
 }
