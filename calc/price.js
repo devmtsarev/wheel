@@ -19,7 +19,10 @@ const num = (x, d) => Number.isFinite(x) ? x.toFixed(d).replace('.', ',') : '—
 const pct = (x, d) => Number.isFinite(x) ? (100 * x).toFixed(d).replace('.', ',') + '%' : '—';
 
 const rows = input.models.map((m) => {
-  const items = m.items.map((i) => ({ p: i.p, w: i.w != null ? i.w : i.q, role: i.role }));
+  // меню без весов: шансы подбираются из цен (γ или цена клика из параметров) и правятся под валидатор
+  const auto = m.items.every((i) => i.w == null && i.q == null);
+  const sug = auto ? M.suggestChances(m.items.map((i) => i.p), { gamma: m.gamma != null ? m.gamma : P.gamma, targetPrice: m.target_price || P.target_price, k: ks[0], z: P.z }) : null;
+  const items = auto ? sug.items.map((i, j) => ({ p: i.p, w: i.w, role: m.items[j].role })) : m.items.map((i) => ({ p: i.p, w: i.w != null ? i.w : i.q, role: i.role }));
   const b = M.base({ items, mu: P.mu, delta: P.delta, alpha: P.alpha, Nh: P.Nh, wmin: P.wmin });
   const v = M.validate(items, b, input.limits), first = M.priceForK(b, ks[0]);
   const prices = ks.map((k) => {
@@ -27,7 +30,7 @@ const rows = input.models.map((m) => {
     return { k, S: r.S, raw: r.raw, bound: r.bound, kEff: r.kEff,
       win: r.feasible ? M.winChance(b.P, b.Q, r.S) : NaN, risk: r.feasible ? M.lossProb(b.tails, r.S, P.Nh, P.mu) : NaN };
   });
-  return { id: m.id, items: b.P.length, EV: b.EV, CV: b.CV, Smin: first.lo, Smax: first.hi, floorBy: first.floorBy,
+  return { id: m.id + (auto ? ` (шансы подобраны: γ = ${num(sug.gamma, 2)}, джекпот ${pct(sug.qTop, 2)})` : ''), items: b.P.length, EV: b.EV, CV: b.CV, Smin: first.lo, Smax: first.hi, floorBy: first.floorBy,
     consolation: v.consolation, jackpotShare: v.jackpotShare, ok: v.ok, errors: v.errors, prices };
 });
 

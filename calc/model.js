@@ -175,6 +175,64 @@
   // меню для base()/validate(): цены + политика шансов (веса в миллионных долях)
   const policyItems = (prices, gamma) => chancePolicy(prices, gamma).map((q, i) => ({ p: prices[i], w: q * 1e6 }));
 
+  // ---------- «Стартовая конфигурация колеса» ----------
+  // Шансы для меню без ручной настройки: правило q ∝ C^(−γ), затем минимальные поправки a_i,
+  // чтобы колесо прошло валидатор. Это точка старта для A/B-тестов, а не оптимум.
+  // o: { gamma | targetPrice, k, z, limits, minTop } — если задана targetPrice (цена вращения в токенах),
+  // γ подбирается так, чтобы round(k·EV) попала в неё; minTop — нижний предел шанса самого дорогого пункта.
+  function shapeStats(prices, q, z) {
+    const live = 1 - z, pMin = Math.min(...prices), pMax = Math.max(...prices);
+    let EV = 0, m2 = 0, cons = 0, top = 0, qTop = 0;
+    prices.forEach((p, i) => { const qi = live * q[i]; EV += qi * p; m2 += qi * p * p; if (p === pMin) cons += qi; if (p === pMax) { top += qi * p; qTop += qi; } });
+    return { EV, CV: Math.sqrt(Math.max(0, m2 - EV * EV)) / EV, consolation: cons, jackpotShare: top / EV, qTop };
+  }
+  function repairChances(prices, gamma, z, L, minTop) {
+    const adj = prices.map(() => 1), notes = [], order = prices.map((p, i) => i).sort((x, y) => prices[y] - prices[x]); // order[0] — самый дорогой пункт
+    const pMin = Math.min(...prices), q = () => chancePolicy(prices, gamma, adj), st = () => shapeStats(prices, q(), z);
+    const bad = (s) => s.jackpotShare > L.jackpotShareMax + EPS || s.CV > L.cvMax + EPS;
+    for (let round = 0; round < 6; round++) {
+      let s = st(), changed = false;
+      if (s.consolation < L.consolationMin - EPS) {                 // приподнять самый дешёвый пункт ровно до порога
+        const w = chancePolicy(prices, gamma, adj), t = L.consolationMin / (1 - z);
+        const wc = prices.reduce((a, p, i) => a + (p === pMin ? w[i] : 0), 0), f = t * (1 - wc) / ((1 - t) * wc);
+        prices.forEach((p, i) => { if (p === pMin) adj[i] *= f; }); notes.push('consolation'); changed = true; s = st();
+      }
+      if (bad(s)) {                                                  // прижать самый дорогой пункт ровно до прохождения порогов
+        const i = order[0], a0 = adj[i], qTopAt = (v) => { adj[i] = v; return shapeStats(prices, q(), z).qTop; };
+        let lo = 1e-9;
+        if (minTop > 0 && qTopAt(a0) > minTop) { let x = 1e-9, y = a0; for (let j = 0; j < 50; j++) { const m = (x + y) / 2; if (qTopAt(m) < minTop) x = m; else y = m; } lo = y; }
+        else if (minTop > 0) lo = a0;                                // шанс уже не выше предела — прижимать нельзя
+        adj[i] = lo;
+        if (bad(st())) { notes.push('unfixable'); break; }           // даже на пределе пороги не проходят: менять нужно меню
+        let hi = a0; for (let j = 0; j < 50; j++) { const m = (lo + hi) / 2; adj[i] = m; if (bad(st())) hi = m; else lo = m; }
+        adj[i] = lo; notes.push('press'); changed = true;
+      }
+      if (!changed) break;
+    }
+    return { adj, q: q(), stats: st(), notes };
+  }
+  function suggestChances(prices, o) {
+    o = o || {}; const z = o.z > 0 ? o.z : 0, L = Object.assign({}, LIMITS, o.limits), k = o.k > 0 ? o.k : 0.8;
+    let gamma = o.gamma == null ? 0.5 : o.gamma, r;
+    if (o.targetPrice > 0) {                                         // EV падает с γ: бисекция по γ под цену клика
+      const f = (g) => k * repairChances(prices, g, z, L, o.minTop).stats.EV - o.targetPrice;
+      let a = 0, b = 3;
+      if (f(a) <= 0) gamma = a; else if (f(b) >= 0) gamma = b;
+      else { for (let j = 0; j < 40; j++) { const m = (a + b) / 2; if (f(m) > 0) a = m; else b = m; } gamma = (a + b) / 2; }
+    }
+    r = repairChances(prices, gamma, z, L, o.minTop);
+    const s = r.stats, ok = s.consolation >= L.consolationMin - 1e-6 && s.jackpotShare <= L.jackpotShareMax + 1e-6 && s.CV <= L.cvMax + 1e-6 && z <= L.emptyMax + EPS;
+    return { gamma, adj: r.adj, q: r.q, items: r.q.map((x, i) => ({ p: prices[i], w: x * 1e6 })), z, k, EV: s.EV, CV: s.CV,
+      consolation: s.consolation, jackpotShare: s.jackpotShare, qTop: s.qTop, price: Math.round(k * s.EV), ok, notes: r.notes };
+  }
+  // варианты для A/B-теста: сетка по k и γ вокруг стартовой точки; каждый вариант — готовое колесо
+  function variants(prices, o, grid) {
+    const out = [];
+    for (const gamma of (grid && grid.gamma) || [o && o.gamma != null ? o.gamma : 0.5])
+      for (const k of (grid && grid.k) || [(o && o.k) || 0.8]) out.push(suggestChances(prices, Object.assign({}, o, { gamma, k, targetPrice: 0 })));
+    return out;
+  }
+
   // ---------- «Маржа поверх себестоимости» ----------
   // Себестоимость пункта μ_i·C_i, маржа m_i поверх неё. Цена вращения с гарантированной в среднем
   // маржой: S = Σ q_i·μ_i·C_i·(1 + m_i). Пустой сектор (цена 0) затрат не несёт.
@@ -250,6 +308,6 @@
 
   return { SERIES, normalize, stats, buildTails, lossProb, riskFloor, avgFloor, menuGuard, winChance, winCeiling,
     cannibalization, breakEvenK, roiFloorK, optimumK, volume, capacityPrice, gain, roi, base, solve, evaluate, priceForK, validate, LIMITS,
-    chancePolicy, fitGamma, policyCurve, policyItems, loyaltyPrice, marginPrice, kOfMargin, marginOfK, gammaForK, costTails, lossProbCost,
+    chancePolicy, fitGamma, policyCurve, policyItems, suggestChances, variants, loyaltyPrice, marginPrice, kOfMargin, marginOfK, gammaForK, costTails, lossProbCost,
     fitDemand, demandAt, capacityPerHour, clearingPrice, dynamicStep };
 });

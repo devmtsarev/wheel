@@ -379,6 +379,7 @@ function buildControls() {
     <table class="menu"><thead><tr><th>Пункт</th><th class="n">Цена</th><th class="n">Вес</th><th>Шанс</th><th class="x"></th></tr></thead><tbody id="menu"></tbody></table>
     <p class="note" id="m-empty"></p>
     <label class="chk"><input type="checkbox" id="in-pol"> Шансы из цен по γ (веса не используются)</label>
+    <div class="row"><button type="button" id="suggest">Подобрать веса: γ и правка под валидатор</button></div><p class="note" id="m-sug"></p>
     <div class="row"><button type="button" id="add">Добавить пункт</button><button type="button" id="reset">Сбросить всё</button></div></div>`;
   for (const g of GROUPS) { h += `<div class="group"><h2>${esc(g.h)}</h2>${g.note ? `<p class="note">${esc(g.note)}</p>` : ''}`;
     for (const c of g.c) h += `<div class="ctl"><div class="top"><label for="in-${c.k}">${esc(c.n)}</label><b id="v-${c.k}"></b></div>
@@ -389,6 +390,12 @@ function buildControls() {
   $('#in-S').addEventListener('input', (e) => { st.S = +e.target.value; st.auto = false; update(); });
   $('#in-auto').addEventListener('change', (e) => { st.auto = e.target.checked; update(); });
   $('#in-pol').addEventListener('change', (e) => { st.pol = e.target.checked; st.auto = true; update(); });
+  $('#suggest').addEventListener('click', () => { const live = st.items.filter((i) => i.p >= 1);
+    const r = M.suggestChances(live.map((i) => i.p), { gamma: st.gamma, z: st.z / 100, k: 0.8 });
+    live.forEach((it, j) => { it.w = Math.max(1, Math.round(r.q[j] * 10000)); }); st.pol = false; st.auto = true; menuKey = '';
+    const did = []; if (r.notes.includes('consolation')) did.push('самый дешёвый пункт приподнят до 20%'); if (r.notes.includes('press')) did.push('самый дорогой прижат, поправка ' + fmt(Math.min(...r.adj), 2));
+    $('#m-sug').textContent = 'Веса записаны по γ = ' + fmt(st.gamma, 2) + (did.length ? ': ' + did.join(', ') : ', правка не понадобилась') + (r.ok ? '.' : '. Валидатор всё равно не проходит: нужно менять меню.');
+    renderMenu(); update(); });
   $('#add').addEventListener('click', () => { menuKey = ''; st.items.push({ t: 'Новый пункт', p: 50, w: 5 }); renderMenu(); update(); });
   $('#reset').addEventListener('click', () => { Object.assign(st, JSON.parse(DEFAULTS)); menuKey = 'example'; renderMenu(); update(); });
   $('#controls').addEventListener('click', (e) => { const b = e.target.closest('button[data-preset]'); if (!b) return;

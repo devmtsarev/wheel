@@ -144,3 +144,16 @@ test('лояльность по пунктам k_i — основная запи
   near(M.loyaltyPrice(PR, q, 0.8, 0.4).margin, 1, 1e-9); assert.ok(M.loyaltyPrice(PR, q, 0.3, 0.4).margin < 0); // убыток только при k < μ
   near(M.gammaForK(PR, ki, 0, 0.8), M.gammaForK(PR, mu, m, 0.8), 1e-9);             // подбор γ напрямую по k_i
 });
+
+test('стартовая конфигурация: шансы из цен с правкой под валидатор', () => {
+  const r = M.suggestChances(PR, { targetPrice: 40, k: 0.8 });                      // цена клика 40 при k = 0,8
+  assert.ok(r.ok); assert.equal(r.price, 40); near(r.gamma, 0.43, 0.01); near(r.EV, 50, 0.3);
+  near(r.jackpotShare, 0.25, 1e-6); near(r.q[7], 0.025, 0.001); near(r.adj[7], 0.63, 0.01); assert.deepEqual(r.notes, ['press']);
+  const sb = M.base(Object.assign({}, D, { items: r.items })); assert.ok(M.validate(r.items, sb).ok);
+  const pr = M.priceForK(sb, 0.8); assert.equal(pr.S, 40); assert.equal(pr.lo, 32);
+  const g0 = M.suggestChances(PR, { gamma: 0 }); assert.ok(g0.ok); near(g0.consolation, 0.2, 0.02); assert.deepEqual(g0.notes.slice(0, 2), ['consolation', 'press']);
+  const g1 = M.suggestChances(PR, { gamma: 1 }); assert.ok(g1.ok); near(g1.CV, 2, 1e-6);            // прижат ровно до порога CV
+  const stuck = M.suggestChances(PR, { gamma: 1, minTop: 0.01 }); assert.ok(!stuck.ok); assert.ok(stuck.notes.includes('unfixable'));
+  const flat = M.suggestChances([10, 20, 30], { gamma: 0.5 }); near(flat.q.reduce((a, x) => a + x, 0), 1, 1e-12);
+  assert.deepEqual(M.variants(PR, {}, { k: [0.8, 1], gamma: [0.4, 0.6] }).map((v) => v.price), [41, 52, 32, 40]);
+});
