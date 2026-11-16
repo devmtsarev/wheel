@@ -1,4 +1,5 @@
 // Original demo widget, with adapter lifecycle and overlay integration fixes.
+import '../shared/host-theme.js';
 import {hex,sha256Hex,rollPpm,pickIndex} from '../shared/fairness.js';
 const pl = (n, f) => {
   n = Math.abs(n) % 100; const m = n % 10;
@@ -71,9 +72,9 @@ td.n, th.n { text-align:right; font-variant-numeric:tabular-nums; }
 .card .chips { display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-bottom:12px; font-size:12.5px; color:var(--muted); }
 .card .chips span { border:1px solid var(--line); border-radius:99px; padding:3px 9px; }
 .card .btn { margin:0; background:var(--accent); color:var(--accent-ink); border:0; font-weight:700; padding:9px 18px; }
-.wallet-summary{width:max-content;max-width:100%;margin:10px auto 0;padding:7px 13px;border-radius:20px;background:#202a24f2;color:#edf0e4;font-size:12px;text-align:center}.details-open .wallet-summary{display:none}.details-open .stage,.details-open .msg{display:none}.details-open .info{margin:0 0 12px}.funding{display:block;margin:10px auto;background:var(--accent);color:var(--accent-ink)}.funding:hover,.funding:focus-visible{background:var(--accent);color:var(--accent-ink);border-color:var(--gold);box-shadow:0 0 0 2px var(--gold)}.funding[hidden]{display:none}.extra[hidden]{display:none}.extra{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:14px;margin-top:12px}
-.info{display:block;margin:14px auto 0;background:#202a24ed;color:#e4e5d8;border:1px solid #c8ccad44;border-radius:30px;padding:9px 17px;font:500 12px system-ui;cursor:pointer}.info:focus-visible{outline:3px solid var(--gold)}
-.msg:empty{display:none}.msg{border-radius:10px;text-align:center;background:#202a24ed;padding:8px;font-size:12px}.spin .spin-label{font-size:11px;letter-spacing:0;font-weight:600}.spin .unit{font-size:11px;font-weight:500}.spin{border-width:3px}.spin .price{font-weight:600}
+.wallet-summary{width:max-content;max-width:100%;margin:10px auto 0;padding:7px 13px;border-radius:20px;background:var(--panel);color:var(--ink);font-size:12px;text-align:center}.details-open .wallet-summary{display:none}.details-open .stage,.details-open .msg{display:none}.details-open .info{margin:0 0 12px}.funding{display:block;margin:10px auto;background:var(--accent);color:var(--accent-ink)}.funding:hover,.funding:focus-visible{background:var(--accent);color:var(--accent-ink);border-color:var(--gold);box-shadow:0 0 0 2px var(--gold)}.funding[hidden]{display:none}.extra[hidden]{display:none}.extra{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:14px;margin-top:12px}
+.info{display:block;margin:14px auto 0;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:30px;padding:9px 17px;font:500 12px system-ui;cursor:pointer}.info:focus-visible{outline:3px solid var(--gold)}
+.msg:empty{display:none}.msg{border-radius:10px;text-align:center;background:var(--panel);padding:8px;font-size:12px}.spin .spin-label{font-size:11px;letter-spacing:0;font-weight:600}.spin .unit{font-size:11px;font-weight:500}.spin{border-width:3px}.spin .price{font-weight:600}
 .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
 `;
 
@@ -154,7 +155,8 @@ class PrizeWheel {
   }
 
   // ---- публичный API виджета ----
-  setTheme(t) { Object.entries(t).forEach(([k, v]) => this.host.style.setProperty('--' + k, v)); this.draw(); }
+  setTheme(t) { this.sectorPalette=t.sectors||null; Object.entries(t).filter(([k])=>k!=='sectors').forEach(([k, v]) => this.host.style.setProperty('--' + k, v)); if(this.state)this.renderOdds(); this.draw(); }
+  sectorColor(item,index) { return this.sectorPalette ? this.sectorPalette[index % this.sectorPalette.length] : item.color; }
   async refresh(rebuild = false) {
     this.state = await this.server.getState();
     this.renderOdds();
@@ -168,8 +170,8 @@ class PrizeWheel {
   // ---- отрисовка ----
   renderOdds() {
     const s = this.state;
-    this.el.tbody.innerHTML = s.items.map((i) =>
-      `<tr><td><span class="dot" style="background:${i.color}"></span>${esc(i.title)}</td>
+    this.el.tbody.innerHTML = s.items.map((i,index) =>
+      `<tr><td><span class="dot" style="background:${this.sectorColor(i,index)}"></span>${esc(i.title)}</td>
        <td class="n">${(i.ppm / 10000).toFixed(4)}%</td></tr>`).join('');
     this.el.ev.innerHTML = `Цена вращения: <b>${tk(s.price)}</b>. Шансы фиксированы до конца серии. Версия колеса ${s.version}, хэш конфигурации ${s.configHash}.`;
   }
@@ -213,13 +215,13 @@ class PrizeWheel {
     for (let i = 0; i < n; i++) {
       const a0 = this.R + i * a - Math.PI / 2, a1 = a0 + a;
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, a0, a1); ctx.closePath();
-      ctx.fillStyle = items[i].color; ctx.fill();
+      const sectorColor=this.sectorColor(items[i],i); ctx.fillStyle = sectorColor; ctx.fill();
       ctx.lineWidth = 2; ctx.strokeStyle = v('--bg'); ctx.stroke();
       // Reserve the center button and rim; wrap phrases inside each sector.
       const mid=a0+a/2, radius=r*0.67, maxWidth=r*0.48;
       ctx.save();ctx.translate(cx+Math.cos(mid)*radius,cy+Math.sin(mid)*radius);
       ctx.rotate(mid+(Math.cos(mid)<0?Math.PI:0));
-      ctx.fillStyle=this.textOn(items[i].color);ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle=this.textOn(sectorColor);ctx.textAlign='center';ctx.textBaseline='middle';
       const lines=items[i].label.split(' ');let font=Math.round(s*0.04);
       ctx.font=`600 ${font}px system-ui`;
       while(font>9&&lines.some(line=>ctx.measureText(line).width>maxWidth)){font--;ctx.font=`600 ${font}px system-ui`;}
@@ -229,11 +231,7 @@ class PrizeWheel {
     ctx.beginPath(); ctx.arc(cx, cy, r * 0.17, 0, Math.PI * 2); ctx.fillStyle = v('--panel'); ctx.fill();
     ctx.lineWidth = 3; ctx.strokeStyle = v('--accent'); ctx.stroke();
   }
-  textOn(hexColor) {
-    const h = hexColor.replace('#', ''), c = [0, 2, 4].map((i) => parseInt(h.substr(i, 2), 16) / 255)
-      .map((x) => (x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4)));
-    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] > 0.4 ? '#1b1636' : '#ffffff';
-  }
+  textOn(hexColor) { return globalThis.WheelHostTheme.textOn(hexColor); }
   animateTo(idx) {   // чисто косметика: итог уже определён сервером
     return new Promise((resolve) => {
       const TAU = Math.PI * 2, n = this.state.items.length, a = TAU / n;

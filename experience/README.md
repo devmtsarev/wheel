@@ -68,3 +68,49 @@ Saving creates a new version and fairness epoch. Old spin records include immuta
 ## Existing API specification
 
 The upstream [`api/README.md`](../api/README.md) and OpenAPI document describe a server reserve/commit flow, signed webhooks, widget tokens and WebSocket updates. This prototype does not call those endpoints or claim to implement their guarantees. Its single local atomic spin transaction stands in for that flow. Production integration must reconcile the new automatic inverse-price inputs (direct prices + overhead, derived price/ppm) with API wheel versions; preserve server-issued price validity, idempotency and payment reservation semantics; and replace local seed storage with server ownership. No secrets belong in the embed.
+
+## Automatic website colors
+
+The existing one-script embed now detects the host site's colors by default:
+
+```html
+<script src="/experience/embed/wheel.js" defer></script>
+```
+
+It composites CSS background colors beneath the overlay and looks for brand variables
+(`--accent-color`, `--brand-color`, `--color-primary`, `--primary-color`, `--accent`, `--primary`).
+If none exist, it checks up to 64 links/buttons for a visible colored control. A neutral palette
+is used when no accent can be identified. Only `{background, accent}` hex colors are sent to
+the player; it does not send page content, capture screenshots, or inspect images/video.
+The overlay stays transparent. Wheel sectors, center button, launcher, balance and details
+adapt together. Segment labels and automatic-theme text use contrast-aware colors.
+This is a visual palette only: prize values, probabilities, operator configuration and proof
+snapshots do not change. In automatic mode, segment colors are derived from the site instead
+of the operator's custom colors; choosing a manual theme restores those item colors.
+
+Attribute/DOM changes, loaded stylesheets, scrolling, viewport changes and system light/dark
+changes trigger bounded resampling (at most once per 120 ms). Only changed palettes are
+posted. For stylesheet changes made directly through CSSOM, explicitly request a refresh:
+
+```js
+window.dispatchEvent(new Event('wheel:theme-refresh'));
+```
+
+Optional integration overrides accept six-digit hex colors:
+
+```html
+<script src="/experience/embed/wheel.js" defer
+  data-wheel-accent="#3159cf" data-wheel-background="#f4f6fc"></script>
+```
+
+Set `data-wheel-theme="manual"` to disable extraction. Viewers can also choose a manual
+palette in Details; it remains selected until they choose **Цвета сайта** again or reload.
+
+The embed loads `shared/host-theme.js` from its own hosting path as a classic script and
+passes a CSP nonce when provided. Allow the widget script origin and player frame origin
+in the host's CSP. If the helper is blocked, the existing default wheel remains available.
+Cross-origin theming uses an origin/source-checked message handshake, not iframe DOM access.
+
+Try `/experience/demos/themes/` for light blue, dark lavender and warm terracotta websites.
+CSS background images, gradients, canvas/video and closed shadow roots are not analyzed;
+use overrides when the declared CSS colors do not represent the visible site.
