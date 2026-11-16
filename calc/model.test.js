@@ -135,3 +135,12 @@ test('кривая по γ и потолок k_max в коридоре', () => {
   const fr = M.evaluate(Object.assign({}, D, { items: M.policyItems(PR, 1), z: zf, kmax: 1.2, rho: 1 }));
   assert.equal(fr.hi, 20); assert.equal(M.evaluate(Object.assign({}, D, { items: M.policyItems(PR, 1), z: zf })).hi, 16);
 });
+
+test('лояльность по пунктам k_i — основная запись, маржа выражается через неё: m_i = k_i/μ_i − 1', () => {
+  const mu = [0.2, 0.3, 0.3, 0.4, 0.4, 0.4, 0.5, 0.6], ki = [0.5, 0.66, 0.66, 0.8, 0.8, 0.8, 0.9, 0.9], q = M.chancePolicy(PR, 0.7);
+  const r = M.loyaltyPrice(PR, q, ki, mu), m = r.marginItems;
+  near(m[0], 1.5, 1e-9); near(m[3], 1, 1e-9); near(m[7], 0.5, 1e-9);                // k_i < 1, а маржа положительна
+  near(r.k, M.marginPrice(PR, q, mu, m).k, 1e-12); near(r.k, 0.80, 0.002);            // та же цена, что через маржу
+  near(M.loyaltyPrice(PR, q, 0.8, 0.4).margin, 1, 1e-9); assert.ok(M.loyaltyPrice(PR, q, 0.3, 0.4).margin < 0); // убыток только при k < μ
+  near(M.gammaForK(PR, ki, 0, 0.8), M.gammaForK(PR, mu, m, 0.8), 1e-9);             // подбор γ напрямую по k_i
+});

@@ -315,6 +315,14 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
     P.forEach((p, i) => { const c = Q[i] * at(mu, i) * p; cost += c; S += c * (1 + at(margin, i)); EV += Q[i] * p; });
     return { cost, S, EV, k: S / EV, margin: S / cost - 1, muAvg: cost / EV };
   }
+  // Основная запись — лояльность по пунктам k_i (доля цены по меню, которую колесо выручает за пункт):
+  // S = Σ q_i·k_i·C_i, общий k = S/EV. Маржа — тот же k, выраженный от затрат: m_i = k_i/μ_i − 1
+  // (отрицательна только при k_i < μ_i). k и mu — число или массив по пунктам.
+  function loyaltyPrice(P, Q, k, mu) {
+    let S = 0, EV = 0, cost = 0;
+    P.forEach((p, i) => { S += Q[i] * at(k, i) * p; EV += Q[i] * p; cost += Q[i] * at(mu, i) * p; });
+    return { S, EV, cost, k: S / EV, margin: S / cost - 1, marginItems: P.map((p, i) => at(k, i) / at(mu, i) - 1) };
+  }
   // при одном μ и одной марже на всё меню связь прямая: k = μ·(1 + m), m = k/μ − 1
   const kOfMargin = (mu, m) => mu * (1 + m);
   const marginOfK = (mu, k) => k / mu - 1;
@@ -372,7 +380,7 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
 
   return { SERIES, normalize, stats, buildTails, lossProb, riskFloor, avgFloor, menuGuard, winChance, winCeiling,
     cannibalization, breakEvenK, roiFloorK, optimumK, volume, capacityPrice, gain, roi, base, solve, evaluate, priceForK, validate, LIMITS,
-    chancePolicy, fitGamma, policyCurve, policyItems, marginPrice, kOfMargin, marginOfK, gammaForK, costTails, lossProbCost,
+    chancePolicy, fitGamma, policyCurve, policyItems, loyaltyPrice, marginPrice, kOfMargin, marginOfK, gammaForK, costTails, lossProbCost,
     fitDemand, demandAt, capacityPerHour, clearingPrice, dynamicStep };
 });
 
