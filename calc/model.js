@@ -189,7 +189,9 @@
   function repairChances(prices, gamma, z, L, minTop) {
     const adj = prices.map(() => 1), notes = [], order = prices.map((p, i) => i).sort((x, y) => prices[y] - prices[x]); // order[0] — самый дорогой пункт
     const pMin = Math.min(...prices), q = () => chancePolicy(prices, gamma, adj), st = () => shapeStats(prices, q(), z);
-    const bad = (s) => s.jackpotShare > L.jackpotShareMax + EPS || s.CV > L.cvMax + EPS;
+    // Keep a tiny margin inside the limits so normalization and URL round trips
+    // cannot push a repaired distribution over a boundary through floating-point error.
+    const bad = (s) => s.jackpotShare > L.jackpotShareMax - EPS || s.CV > L.cvMax - EPS;
     for (let round = 0; round < 6; round++) {
       let s = st(), changed = false;
       if (s.consolation < L.consolationMin - EPS) {                 // приподнять самый дешёвый пункт ровно до порога
@@ -257,12 +259,46 @@
   // Подбор γ под целевую лояльность k при марже по пунктам: k(γ) = Σ q_i r_i / Σ q_i C_i,
   // где r_i = μ_i C_i (1 + m_i). Возвращает null, если цель недостижима на [gLo, gHi].
   function gammaForK(prices, mu, margin, kTarget, gLo, gHi) {
-    const f = (g) => marginPrice(prices, chancePolicy(prices, g), mu, margin).k - kTarget;
-    let a = gLo == null ? 0 : gLo, b = gHi == null ? 3 : gHi, fa = f(a), fb = f(b);
-    if (Math.abs(fa) < 1e-9) return a; if (Math.abs(fb) < 1e-9) return b;
-    if (fa * fb > 0) return null;
-    for (let i = 0; i < 60; i++) { const m = (a + b) / 2, fm = f(m); if (fa * fm <= 0) { b = m; fb = fm; } else { a = m; fa = fm; } }
-    return (a + b) / 2;
+    const lo = gLo == null ? 0 : gLo, hi = gHi == null ? 3 : gHi;
+    if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo > hi || !prices.length) return null;
+    // k(g) need not be monotone when margins differ by item. Its roots satisfy
+    // sum C_i^(1-g) * (mu_i * (1 + margin_i) - kTarget) = 0.
+    // Combine equal prices, then recursively isolate derivative roots. Factoring
+    // out the first exponential removes one term at each derivative step and
+    // partitions the interval into monotone pieces, including tangent roots.
+    const grouped = new Map();
+    prices.forEach((p, i) => grouped.set(p, (grouped.get(p) || 0) + p * (at(mu, i) * (1 + at(margin, i)) - kTarget)));
+    const terms = [...grouped].map(([p, c]) => ({ x: Math.log(p), c })).sort((a, b) => a.x - b.x);
+    if (terms.some((t) => !Number.isFinite(t.x) || !Number.isFinite(t.c))) return null;
+    function roots(ts) {
+      ts = ts.filter((t) => t.c !== 0);
+      if (!ts.length) return [lo];
+      const origin = ts[0].x, scale = Math.max(...ts.map((t) => Math.abs(t.c)));
+      ts = ts.map((t) => ({ x: t.x - origin, c: t.c / scale }));
+      const value = (g) => {
+        const shift = Math.max(...ts.map((t) => -t.x * g));
+        let sum = 0, magnitude = 0;
+        for (const t of ts) { const v = t.c * Math.exp(-t.x * g - shift); sum += v; magnitude += Math.abs(v); }
+        return Math.abs(sum) <= 1e-12 * magnitude ? 0 : sum;
+      };
+      if (ts.length === 1) return [];
+      const critical = roots(ts.slice(1).map((t) => ({ x: t.x, c: -t.x * t.c })));
+      const cuts = [lo, ...critical.filter((g) => g > lo && g < hi), hi], found = [];
+      for (const g of cuts) if (value(g) === 0) found.push(g);
+      for (let i = 1; i < cuts.length; i++) {
+        let a = cuts[i - 1], b = cuts[i], fa = value(a), fb = value(b);
+        if (fa === 0 || fb === 0 || Math.sign(fa) === Math.sign(fb)) continue;
+        for (let j = 0; j < 60; j++) {
+          const m = (a + b) / 2, fm = value(m);
+          if (fm === 0) { a = b = m; break; }
+          if (Math.sign(fa) !== Math.sign(fm)) b = m;
+          else { a = m; fa = fm; }
+        }
+        found.push((a + b) / 2);
+      }
+      return found.sort((a, b) => a - b);
+    }
+    return roots(terms)[0] ?? null; // deterministic: smallest matching gamma
   }
   // «Риск серии» при себестоимости по пунктам: распределение суммы затрат (в десятых долях токена)
   function costTails(P, Q, mu) { return buildTails(P.map((p, i) => Math.round(at(mu, i) * p * 10)), Q); }
@@ -286,12 +322,14 @@
   // наблюдений, если в них есть две разные цены и оценка правдоподобна, иначе — априорная epsPrior.
   // Результат совместим с demandAt, clearingPrice и dynamicStep.
   function forecastDemand(history, o) {
-    o = o || {}; const pts = history.filter((h) => h.S > 0 && h.rate > 0); if (!pts.length) return null;
-    const now = o.now != null ? o.now : Math.max(...pts.map((h) => h.t)), half = o.halfLife > 0 ? o.halfLife : 10;
+    o = o || {}; const pts = history.filter((h) => Number.isFinite(h.t) && Number.isFinite(h.S) && h.S > 0 && Number.isFinite(h.rate) && h.rate >= 0); if (!pts.length) return null;
+    const half = o.halfLife > 0 ? o.halfLife : 10;
     const own = fitDemand(pts), usable = own && own.eps >= 0.3 && own.eps <= 4;
-    const eps = usable ? own.eps : (o.epsPrior > 0 ? o.epsPrior : 1.5), Sref = pts[pts.length - 1].S;
+    const eps = usable ? own.eps : (o.epsPrior > 0 ? o.epsPrior : 1.5), Sref = pts.reduce((latest, h) => h.t > latest.t ? h : latest).S;
     let num = 0, den = 0;
-    for (const h of pts) { const w = Math.pow(0.5, (now - h.t) / half); num += w * h.rate * Math.pow(h.S / Sref, eps); den += w; }
+    // A common time offset cancels in num / den; use the latest sample to avoid underflow.
+    const latest = Math.max(...pts.map((h) => h.t));
+    for (const h of pts) { const w = Math.pow(0.5, (latest - h.t) / half); num += w * h.rate * Math.pow(h.S / Sref, eps); den += w; }
     const vRef = num / den;
     return { eps, a: Math.log(vRef) + eps * Math.log(Sref), n: pts.length, vRef, Sref, epsSource: usable ? 'observed' : 'prior' };
   }

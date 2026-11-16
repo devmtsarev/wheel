@@ -319,7 +319,9 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
   function repairChances(prices, gamma, z, L, minTop) {
     const adj = prices.map(() => 1), notes = [], order = prices.map((p, i) => i).sort((x, y) => prices[y] - prices[x]); // order[0] — самый дорогой пункт
     const pMin = Math.min(...prices), q = () => chancePolicy(prices, gamma, adj), st = () => shapeStats(prices, q(), z);
-    const bad = (s) => s.jackpotShare > L.jackpotShareMax + EPS || s.CV > L.cvMax + EPS;
+    // Keep a tiny margin inside the limits so normalization and URL round trips
+    // cannot push a repaired distribution over a boundary through floating-point error.
+    const bad = (s) => s.jackpotShare > L.jackpotShareMax - EPS || s.CV > L.cvMax - EPS;
     for (let round = 0; round < 6; round++) {
       let s = st(), changed = false;
       if (s.consolation < L.consolationMin - EPS) {                 // приподнять самый дешёвый пункт ровно до порога
@@ -387,12 +389,46 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
   // Подбор γ под целевую лояльность k при марже по пунктам: k(γ) = Σ q_i r_i / Σ q_i C_i,
   // где r_i = μ_i C_i (1 + m_i). Возвращает null, если цель недостижима на [gLo, gHi].
   function gammaForK(prices, mu, margin, kTarget, gLo, gHi) {
-    const f = (g) => marginPrice(prices, chancePolicy(prices, g), mu, margin).k - kTarget;
-    let a = gLo == null ? 0 : gLo, b = gHi == null ? 3 : gHi, fa = f(a), fb = f(b);
-    if (Math.abs(fa) < 1e-9) return a; if (Math.abs(fb) < 1e-9) return b;
-    if (fa * fb > 0) return null;
-    for (let i = 0; i < 60; i++) { const m = (a + b) / 2, fm = f(m); if (fa * fm <= 0) { b = m; fb = fm; } else { a = m; fa = fm; } }
-    return (a + b) / 2;
+    const lo = gLo == null ? 0 : gLo, hi = gHi == null ? 3 : gHi;
+    if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo > hi || !prices.length) return null;
+    // k(g) need not be monotone when margins differ by item. Its roots satisfy
+    // sum C_i^(1-g) * (mu_i * (1 + margin_i) - kTarget) = 0.
+    // Combine equal prices, then recursively isolate derivative roots. Factoring
+    // out the first exponential removes one term at each derivative step and
+    // partitions the interval into monotone pieces, including tangent roots.
+    const grouped = new Map();
+    prices.forEach((p, i) => grouped.set(p, (grouped.get(p) || 0) + p * (at(mu, i) * (1 + at(margin, i)) - kTarget)));
+    const terms = [...grouped].map(([p, c]) => ({ x: Math.log(p), c })).sort((a, b) => a.x - b.x);
+    if (terms.some((t) => !Number.isFinite(t.x) || !Number.isFinite(t.c))) return null;
+    function roots(ts) {
+      ts = ts.filter((t) => t.c !== 0);
+      if (!ts.length) return [lo];
+      const origin = ts[0].x, scale = Math.max(...ts.map((t) => Math.abs(t.c)));
+      ts = ts.map((t) => ({ x: t.x - origin, c: t.c / scale }));
+      const value = (g) => {
+        const shift = Math.max(...ts.map((t) => -t.x * g));
+        let sum = 0, magnitude = 0;
+        for (const t of ts) { const v = t.c * Math.exp(-t.x * g - shift); sum += v; magnitude += Math.abs(v); }
+        return Math.abs(sum) <= 1e-12 * magnitude ? 0 : sum;
+      };
+      if (ts.length === 1) return [];
+      const critical = roots(ts.slice(1).map((t) => ({ x: t.x, c: -t.x * t.c })));
+      const cuts = [lo, ...critical.filter((g) => g > lo && g < hi), hi], found = [];
+      for (const g of cuts) if (value(g) === 0) found.push(g);
+      for (let i = 1; i < cuts.length; i++) {
+        let a = cuts[i - 1], b = cuts[i], fa = value(a), fb = value(b);
+        if (fa === 0 || fb === 0 || Math.sign(fa) === Math.sign(fb)) continue;
+        for (let j = 0; j < 60; j++) {
+          const m = (a + b) / 2, fm = value(m);
+          if (fm === 0) { a = b = m; break; }
+          if (Math.sign(fa) !== Math.sign(fm)) b = m;
+          else { a = m; fa = fm; }
+        }
+        found.push((a + b) / 2);
+      }
+      return found.sort((a, b) => a - b);
+    }
+    return roots(terms)[0] ?? null; // deterministic: smallest matching gamma
   }
   // «Риск серии» при себестоимости по пунктам: распределение суммы затрат (в десятых долях токена)
   function costTails(P, Q, mu) { return buildTails(P.map((p, i) => Math.round(at(mu, i) * p * 10)), Q); }
@@ -416,12 +452,14 @@ svg text { font-family: var(--font-text); font-variant-numeric: tabular-nums; }
   // наблюдений, если в них есть две разные цены и оценка правдоподобна, иначе — априорная epsPrior.
   // Результат совместим с demandAt, clearingPrice и dynamicStep.
   function forecastDemand(history, o) {
-    o = o || {}; const pts = history.filter((h) => h.S > 0 && h.rate > 0); if (!pts.length) return null;
-    const now = o.now != null ? o.now : Math.max(...pts.map((h) => h.t)), half = o.halfLife > 0 ? o.halfLife : 10;
+    o = o || {}; const pts = history.filter((h) => Number.isFinite(h.t) && Number.isFinite(h.S) && h.S > 0 && Number.isFinite(h.rate) && h.rate >= 0); if (!pts.length) return null;
+    const half = o.halfLife > 0 ? o.halfLife : 10;
     const own = fitDemand(pts), usable = own && own.eps >= 0.3 && own.eps <= 4;
-    const eps = usable ? own.eps : (o.epsPrior > 0 ? o.epsPrior : 1.5), Sref = pts[pts.length - 1].S;
+    const eps = usable ? own.eps : (o.epsPrior > 0 ? o.epsPrior : 1.5), Sref = pts.reduce((latest, h) => h.t > latest.t ? h : latest).S;
     let num = 0, den = 0;
-    for (const h of pts) { const w = Math.pow(0.5, (now - h.t) / half); num += w * h.rate * Math.pow(h.S / Sref, eps); den += w; }
+    // A common time offset cancels in num / den; use the latest sample to avoid underflow.
+    const latest = Math.max(...pts.map((h) => h.t));
+    for (const h of pts) { const w = Math.pow(0.5, (latest - h.t) / half); num += w * h.rate * Math.pow(h.S / Sref, eps); den += w; }
     const vRef = num / den;
     return { eps, a: Math.log(vRef) + eps * Math.log(Sref), n: pts.length, vRef, Sref, epsSource: usable ? 'observed' : 'prior' };
   }
@@ -728,9 +766,10 @@ function buildControls() {
   $('#in-pol').addEventListener('change', (e) => { st.pol = e.target.checked; st.auto = true; update(); });
   $('#suggest').addEventListener('click', () => { const live = st.items.filter((i) => i.p >= 1);
     const r = M.suggestChances(live.map((i) => i.p), { gamma: st.gamma, z: st.z / 100, k: 0.8 });
-    live.forEach((it, j) => { it.w = Math.max(1, Math.round(r.q[j] * 10000)); }); st.pol = false; st.auto = true; menuKey = '';
+    live.forEach((it, j) => { it.w = r.items[j].w; }); st.pol = false; st.auto = true; menuKey = '';
+    const validation = M.validate(live, model(), { emptyMax: st.z / 100, kMax: st.kmax });
     const did = []; if (r.notes.includes('consolation')) did.push('самый дешёвый пункт приподнят до 20%'); if (r.notes.includes('press')) did.push('самый дорогой прижат, поправка ' + fmt(Math.min(...r.adj), 2));
-    $('#m-sug').textContent = 'Веса записаны по γ = ' + fmt(st.gamma, 2) + (did.length ? ': ' + did.join(', ') : ', правка не понадобилась') + (r.ok ? '.' : '. Валидатор всё равно не проходит: нужно менять меню.');
+    $('#m-sug').textContent = 'Веса записаны по γ = ' + fmt(st.gamma, 2) + (did.length ? ': ' + did.join(', ') : ', правка не понадобилась') + (validation.ok ? '.' : '. Валидатор всё равно не проходит: нужно менять меню.');
     renderMenu(); update(); });
   $('#add').addEventListener('click', () => { menuKey = ''; st.items.push({ t: 'Новый пункт', p: 50, w: 5 }); renderMenu(); update(); });
   $('#reset').addEventListener('click', () => { Object.assign(st, JSON.parse(DEFAULTS)); menuKey = 'example'; renderMenu(); update(); });
@@ -740,7 +779,7 @@ function buildControls() {
     try { await navigator.clipboard.writeText(el.value); $('#copy').textContent = 'Скопировано'; } catch (err) { try { document.execCommand('copy'); $('#copy').textContent = 'Скопировано'; } catch (e2) { $('#copy').textContent = 'Выделено: Ctrl+C'; } }
     setTimeout(() => { $('#copy').textContent = 'Скопировать'; }, 1500); });
   $('#menu').addEventListener('input', (e) => { const i = +e.target.dataset.i, k = e.target.dataset.k; if (!k) return;
-    menuKey = ''; st.items[i][k] = k === 't' ? e.target.value : clamp(Math.round(+e.target.value || 0), 0, k === 'p' ? 5000 : 1000); update(); });
+    menuKey = ''; st.items[i][k] = k === 't' ? e.target.value : k === 'p' ? clamp(Math.round(+e.target.value || 0), 0, 5000) : clamp(+e.target.value || 0, 0, 1000000); update(); });
   $('#menu').addEventListener('click', (e) => { const b = e.target.closest('button[data-del]'); if (!b || st.items.length <= 2) return;
     menuKey = ''; st.items.splice(+b.dataset.del, 1); renderMenu(); update(); });
   renderMenu();
@@ -748,7 +787,7 @@ function buildControls() {
 function renderMenu() {
   $('#menu').innerHTML = st.items.map((it, i) => `<tr><td><input id="m-t-${i}" data-i="${i}" data-k="t" value="${esc(it.t)}" aria-label="Название пункта"></td>
     <td><input id="m-p-${i}" data-i="${i}" data-k="p" type="number" min="1" max="5000" value="${it.p}" aria-label="Цена по меню"></td>
-    <td><input id="m-w-${i}" data-i="${i}" data-k="w" type="number" min="0" max="1000000" value="${it.w}" aria-label="Вес"></td>
+    <td><input id="m-w-${i}" data-i="${i}" data-k="w" type="number" min="0" max="1000000" step="any" value="${it.w}" aria-label="Вес"></td>
     <td class="q" id="m-q-${i}"></td><td><button type="button" class="x" data-del="${i}" aria-label="Удалить пункт">×</button></td></tr>`).join('');
 }
 const DEFAULTS = JSON.stringify(st);
@@ -781,8 +820,8 @@ function readParams() {
   const q = new URLSearchParams(raw); let any = false;
   if (q.has('menu') && PRESETS[q.get('menu')]) { menuKey = q.get('menu'); st.items = presetItems(menuKey); any = true; }
   if (q.has('items')) {
-    const its = q.get('items').split(',').map((x, i) => { const [p, w, ...t] = x.split(':'); return { t: t.join(':') || 'Пункт ' + (i + 1), p: Math.round(+p), w: Math.round(+w) }; })
-      .filter((i) => i.p >= 1 && i.p <= 5000 && i.w >= 0);
+    const its = q.get('items').split(',').map((x, i) => { const [p, w, ...t] = x.split(':'); return { t: t.join(':') || 'Пункт ' + (i + 1), p: Math.round(+p), w: +w }; })
+      .filter((i) => i.p >= 1 && i.p <= 5000 && Number.isFinite(i.w) && i.w >= 0);
     if (its.length >= 2) { menuKey = ''; st.items = its; any = true; }
   }
   for (const c of KEYS) if (q.has(c.k)) { const v = +q.get(c.k); if (isFinite(v)) { st[c.k] = clamp(v, c.min, c.max); any = true; } }

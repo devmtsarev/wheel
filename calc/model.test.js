@@ -172,3 +172,39 @@ test('предиктивная модель спроса: свежие набл�
   assert.equal(two.Sref, 45); assert.ok(['observed', 'prior'].includes(two.epsSource));
   assert.equal(M.forecastDemand([]), null);
 });
+
+test('zero-spin intervals lower the forecast and all-zero demand steps price down', () => {
+  const history = [{ t: 0, S: 40, rate: 60 }, { t: 10, S: 40, rate: 0 }, { t: 20, S: 40, rate: 0 }];
+  const fit = M.forecastDemand(history);
+  near(fit.vRef, 60 / 7, 1e-9); assert.equal(fit.n, 3);
+  near(M.demandAt(M.forecastDemand([...history].reverse()), 40), fit.vRef, 1e-9);
+  const zero = M.forecastDemand(history.map((h) => ({ ...h, rate: 0 })));
+  assert.equal(M.demandAt(zero, 40), 0); assert.equal(M.clearingPrice(zero, 30), 0);
+  assert.equal(M.dynamicStep({ fit: zero, capacity: 30, current: 45, lo: 31, hi: 50, steps: [31, 36, 40, 45, 50] }), 40);
+  assert.equal(M.forecastDemand([{ t: 0, S: 40, rate: -1 }]), null);
+  near(M.forecastDemand(history, { now: 100000 }).vRef, fit.vRef, 1e-9);
+});
+
+test('gamma solver finds internal roots with equal-sign endpoints and tangent roots', () => {
+  const prices = [1, 10, 100], margins = [0, 4, 0];
+  const value = (g) => M.marginPrice(prices, M.chancePolicy(prices, g), 0.4, margins).k;
+  assert.ok(value(0) < 0.8 && value(3) < 0.8 && value(1) > 0.8);
+  const first = M.gammaForK(prices, 0.4, margins, 0.8);
+  const second = M.gammaForK(prices, 0.4, margins, 0.8, 1, 3);
+  assert.ok(first > 0 && first < 1); assert.ok(second > 1 && second < 3);
+  near(value(first), 0.8, 1e-9); near(value(second), 0.8, 1e-9);
+  near(M.gammaForK(prices, 0.4, margins, value(1)), 1, 1e-8);
+  assert.equal(M.gammaForK(prices, 0.4, margins, 1), null);
+  // A narrow root pair around the maximum must not depend on a sampling grid.
+  const close = M.gammaForK(prices, 0.4, margins, value(1) - 1e-8);
+  near(value(close), value(1) - 1e-8, 1e-10);
+});
+
+test('gamma solver handles constant ratios, repeated prices and interval boundaries', () => {
+  assert.equal(M.gammaForK([10, 10], 0.4, 1, 0.8), 0);
+  assert.equal(M.gammaForK([10, 10], 0.4, 1, 0.9), null);
+  const prices = [1, 10, 10, 100], margins = [0, 4, 4, 0];
+  const target = M.marginPrice(prices, M.chancePolicy(prices, 0), 0.4, margins).k;
+  near(M.gammaForK(prices, 0.4, margins, target), 0, 1e-9);
+  assert.equal(M.gammaForK(prices, 0.4, margins, target, 3, 0), null);
+});
