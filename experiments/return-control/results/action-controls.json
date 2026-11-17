@@ -1,0 +1,407 @@
+{
+  "runs": 100,
+  "seeds_start": 40000,
+  "evaluations": 2100,
+  "offers": {
+    "equal": {
+      "price": 32.0,
+      "premium": 0.2,
+      "win_probability": 0.5277777777777778,
+      "empty": 0.4722222222222222,
+      "ev": 26.666666666666668,
+      "value_shares": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "mix": [
+        0.6315789473684211,
+        0.2105263157894737,
+        0.10526315789473685,
+        0.052631578947368425
+      ],
+      "action_probabilities": [
+        0.33333333333333337,
+        0.11111111111111112,
+        0.05555555555555556,
+        0.02777777777777778
+      ],
+      "adjustments": [
+        0.19999999999999996,
+        0.19999999999999996,
+        0.19999999999999996,
+        0.19999999999999996
+      ],
+      "negative": false
+    },
+    "expensive_same_frequency": {
+      "price": 32.0,
+      "premium": 0.2,
+      "win_probability": 0.5277777777777778,
+      "empty": 0.4722222222222222,
+      "ev": 26.666666666666668,
+      "value_shares": [
+        0.31,
+        0.03,
+        0.25,
+        0.41
+      ],
+      "mix": [
+        0.7831578947368422,
+        0.025263157894736845,
+        0.10526315789473685,
+        0.0863157894736842
+      ],
+      "action_probabilities": [
+        0.41333333333333333,
+        0.013333333333333334,
+        0.05555555555555556,
+        0.04555555555555555
+      ],
+      "adjustments": [
+        -0.032258064516129115,
+        9.0,
+        0.19999999999999996,
+        -0.2682926829268293
+      ],
+      "negative": true
+    },
+    "middle_same_frequency": {
+      "price": 32.0,
+      "premium": 0.2,
+      "win_probability": 0.5277777777777777,
+      "empty": 0.4722222222222223,
+      "ev": 26.666666666666668,
+      "value_shares": [
+        0.29,
+        0.05,
+        0.41,
+        0.25
+      ],
+      "mix": [
+        0.7326315789473684,
+        0.04210526315789474,
+        0.1726315789473684,
+        0.052631578947368425
+      ],
+      "action_probabilities": [
+        0.38666666666666666,
+        0.022222222222222223,
+        0.0911111111111111,
+        0.02777777777777778
+      ],
+      "adjustments": [
+        0.034482758620689724,
+        4.999999999999999,
+        -0.2682926829268293,
+        0.19999999999999996
+      ],
+      "negative": true
+    }
+  },
+  "summary": [
+    {
+      "scenario": "neutral",
+      "policy": "equal",
+      "net": {
+        "mean": 1203.5674166666668,
+        "low": 1162.564797834831,
+        "high": 1244.5700354985024
+      },
+      "delta": {
+        "mean": 0.0,
+        "low": 0.0,
+        "high": 0.0
+      }
+    },
+    {
+      "scenario": "neutral",
+      "policy": "expensive_same_frequency",
+      "net": {
+        "mean": 1189.1613333333332,
+        "low": 1150.5165416202847,
+        "high": 1227.8061250463818
+      },
+      "delta": {
+        "mean": -14.406083333333335,
+        "low": -40.91303499466302,
+        "high": 12.100868327996348
+      }
+    },
+    {
+      "scenario": "neutral",
+      "policy": "middle_same_frequency",
+      "net": {
+        "mean": 1184.1481666666666,
+        "low": 1146.2897813313957,
+        "high": 1222.0065520019375
+      },
+      "delta": {
+        "mean": -19.41925,
+        "low": -44.7735652383084,
+        "high": 5.935065238308397
+      }
+    },
+    {
+      "scenario": "expensive_desired_fast",
+      "policy": "equal",
+      "net": {
+        "mean": 3230.919083333333,
+        "low": 3160.9423148402484,
+        "high": 3300.895851826418
+      },
+      "delta": {
+        "mean": 0.0,
+        "low": 0.0,
+        "high": 0.0
+      }
+    },
+    {
+      "scenario": "expensive_desired_fast",
+      "policy": "expensive_same_frequency",
+      "net": {
+        "mean": 3160.138083333334,
+        "low": 3090.4574709321882,
+        "high": 3229.81869573448
+      },
+      "delta": {
+        "mean": -70.78100000000002,
+        "low": -116.21241863828165,
+        "high": -25.349581361718393
+      }
+    },
+    {
+      "scenario": "expensive_desired_fast",
+      "policy": "middle_same_frequency",
+      "net": {
+        "mean": 3191.5555833333333,
+        "low": 3117.289782803169,
+        "high": 3265.8213838634974
+      },
+      "delta": {
+        "mean": -39.36350000000002,
+        "low": -81.54789272977595,
+        "high": 2.820892729775913
+      }
+    },
+    {
+      "scenario": "cheap_desired",
+      "policy": "equal",
+      "net": {
+        "mean": 687.7394166666667,
+        "low": 663.589125673393,
+        "high": 711.8897076599403
+      },
+      "delta": {
+        "mean": 0.0,
+        "low": 0.0,
+        "high": 0.0
+      }
+    },
+    {
+      "scenario": "cheap_desired",
+      "policy": "expensive_same_frequency",
+      "net": {
+        "mean": 678.77475,
+        "low": 654.2977853423819,
+        "high": 703.2517146576182
+      },
+      "delta": {
+        "mean": -8.964666666666657,
+        "low": -24.902690134872778,
+        "high": 6.973356801539463
+      }
+    },
+    {
+      "scenario": "cheap_desired",
+      "policy": "middle_same_frequency",
+      "net": {
+        "mean": 684.4019166666667,
+        "low": 658.5610289374322,
+        "high": 710.2428043959012
+      },
+      "delta": {
+        "mean": -3.337499999999994,
+        "low": -18.76780520157705,
+        "high": 12.092805201577061
+      }
+    },
+    {
+      "scenario": "public_satiation",
+      "policy": "equal",
+      "net": {
+        "mean": 1780.423583333333,
+        "low": 1737.1934082655941,
+        "high": 1823.6537584010719
+      },
+      "delta": {
+        "mean": 0.0,
+        "low": 0.0,
+        "high": 0.0
+      }
+    },
+    {
+      "scenario": "public_satiation",
+      "policy": "expensive_same_frequency",
+      "net": {
+        "mean": 1751.597666666667,
+        "low": 1704.6325591856269,
+        "high": 1798.5627741477072
+      },
+      "delta": {
+        "mean": -28.825916666666668,
+        "low": -79.40790967745647,
+        "high": 21.75607634412314
+      }
+    },
+    {
+      "scenario": "public_satiation",
+      "policy": "middle_same_frequency",
+      "net": {
+        "mean": 1763.9405,
+        "low": 1710.9187716802965,
+        "high": 1816.9622283197034
+      },
+      "delta": {
+        "mean": -16.48308333333332,
+        "low": -63.56946540604523,
+        "high": 30.603298739378594
+      }
+    },
+    {
+      "scenario": "expensive_burdensome",
+      "policy": "equal",
+      "net": {
+        "mean": 1244.1558333333332,
+        "low": 1211.2398413768224,
+        "high": 1277.0718252898441
+      },
+      "delta": {
+        "mean": 0.0,
+        "low": 0.0,
+        "high": 0.0
+      }
+    },
+    {
+      "scenario": "expensive_burdensome",
+      "policy": "expensive_same_frequency",
+      "net": {
+        "mean": 1230.9630833333333,
+        "low": 1190.0728607961178,
+        "high": 1271.8533058705489
+      },
+      "delta": {
+        "mean": -13.192749999999979,
+        "low": -47.379303496552566,
+        "high": 20.993803496552612
+      }
+    },
+    {
+      "scenario": "expensive_burdensome",
+      "policy": "middle_same_frequency",
+      "net": {
+        "mean": 1239.1447499999997,
+        "low": 1204.0667918783427,
+        "high": 1274.2227081216568
+      },
+      "delta": {
+        "mean": -5.011083333333317,
+        "low": -35.81187629206229,
+        "high": 25.789709625395655
+      }
+    },
+    {
+      "scenario": "appeal_reversal_unseen",
+      "policy": "equal",
+      "net": {
+        "mean": 595.3528333333333,
+        "low": 570.7235676266793,
+        "high": 619.9820990399872
+      },
+      "delta": {
+        "mean": 0.0,
+        "low": 0.0,
+        "high": 0.0
+      }
+    },
+    {
+      "scenario": "appeal_reversal_unseen",
+      "policy": "expensive_same_frequency",
+      "net": {
+        "mean": 615.8700833333334,
+        "low": 591.3282514207622,
+        "high": 640.4119152459045
+      },
+      "delta": {
+        "mean": 20.517250000000008,
+        "low": 9.557866008327366,
+        "high": 31.47663399167265
+      }
+    },
+    {
+      "scenario": "appeal_reversal_unseen",
+      "policy": "middle_same_frequency",
+      "net": {
+        "mean": 598.9849166666668,
+        "low": 575.5670837945443,
+        "high": 622.4027495387893
+      },
+      "delta": {
+        "mean": 3.6320833333333358,
+        "low": -11.360828457843542,
+        "high": 18.624995124510214
+      }
+    },
+    {
+      "scenario": "value_and_odds_sensitive_unseen",
+      "policy": "equal",
+      "net": {
+        "mean": 3230.710333333334,
+        "low": 3161.346444155571,
+        "high": 3300.0742225110967
+      },
+      "delta": {
+        "mean": 0.0,
+        "low": 0.0,
+        "high": 0.0
+      }
+    },
+    {
+      "scenario": "value_and_odds_sensitive_unseen",
+      "policy": "expensive_same_frequency",
+      "net": {
+        "mean": 3159.21125,
+        "low": 3089.179032066714,
+        "high": 3229.2434679332855
+      },
+      "delta": {
+        "mean": -71.49908333333335,
+        "low": -117.05778268925766,
+        "high": -25.940383977409027
+      }
+    },
+    {
+      "scenario": "value_and_odds_sensitive_unseen",
+      "policy": "middle_same_frequency",
+      "net": {
+        "mean": 3196.990583333333,
+        "low": 3122.9736529277716,
+        "high": 3271.007513738894
+      },
+      "delta": {
+        "mean": -33.71975000000002,
+        "low": -76.5714396496104,
+        "high": 9.13193964961036
+      }
+    }
+  ],
+  "note": "Exploratory fixed controls, no policy selection or fitting on these evaluations. Intervals are unadjusted for multiple comparisons.",
+  "source_sha256": {
+    "action_controls.py": "205c441c97d31488b156586b441dd5486d382821bea35ff1dedeebfe3101f5d0",
+    "action_experiment.py": "f89e44c32dd41128d3c369e1e7d85cd21c469322a6d874b3dfd80a06b5ae5603",
+    "agents.py": "477b332014b52dba8c6950d125c6027d0b828652acb9a2b4ce67498403208e51",
+    "settings.py": "4bfb90e8d62fe23a214cd4e51513d2a56092d0aad5ec5a981dc03fdbc4241be7",
+    "joint_experiment.py": "98cc97641da15a5694488c5a8d8236aac1d6f3eefc5b011a50d45992878157bb"
+  }
+}

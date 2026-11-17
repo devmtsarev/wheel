@@ -1,3 +1,7 @@
+# Latest: per-action adjustments
+
+See [the per-action model](ACTION_MODEL.md) and [results](results/ACTION_RESULTS.md) for differentiated reward mixes, negative adjustments, action-specific demand and service costs. Earlier experiment results below remain separate snapshots.
+
 # Latest: joint premium and supply-demand study
 
 See [the joint model](JOINT_MODEL.md) and [held-out results](results/JOINT_RESULTS.md) for variable premium, explicit demand measurements, scarce action inventory, and a policy shared across audience types. Live pricing is unchanged.
