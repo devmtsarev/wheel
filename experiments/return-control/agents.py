@@ -1,7 +1,7 @@
 """Individual-viewer simulation with a finite streamer action quota.
 
 Behavioral constants are synthetic hypotheses, not fitted psychological facts.
-The controller sees only completed actions/quota; cohort labels and private
+Controllers see aggregate supply and demand only; cohort labels and private
 viewer states belong exclusively to the simulator and reporting.
 """
 from collections import deque
@@ -28,6 +28,8 @@ class World:
     delivery_fraction: float = .4
     fixed_cost_per_minute: float = .25
     novelty_decay: float = .035
+    price_sensitivity: float = .65
+    probability_sensitivity: float = .3
     seed_version: int = 1
 
 WORLDS = {
@@ -74,9 +76,14 @@ def offer_arm(policy, completed, quota, work):
     raise ValueError(policy)
 
 
-def run(world, policy, seed, trace=False):
+def run(world, policy, seed, trace=False, offers=None):
     if world.quota < 1 or world.viewers < 1 or world.delivery_fraction <= 0 or not 0 <= world.streamer_fatigue <= 2/1.2-1:
         raise ValueError('Positive quota, viewer count and delivery capacity required')
+    prices, probabilities = (OFFERS, PS) if offers is None else offers
+    if len(prices) != len(probabilities) or prices[0] != 0 or probabilities[0] != 0:
+        raise ValueError('Offer zero must be unavailable')
+    if any(not math.isfinite(p) or p <= 0 for p in prices[1:]) or any(not 0 < p < 1 for p in probabilities[1:]):
+        raise ValueError('Paid offers require positive finite prices and a nonzero empty outcome')
     pop = population(world, seed)
     n = world.viewers
     budget = pop['budget'].copy()
@@ -103,6 +110,11 @@ def run(world, policy, seed, trace=False):
     fatigue_stops = 0; waiting_stops = 0; wait_samples = []
     trace_rows = []; arm_history = []; reason = 'observation_cutoff'; sec = 0
     action_counts = np.zeros(4, dtype=int)
+    demand_events = deque()
+    decision_exposures = 0; direct_intents = 0; wheel_intents = 0
+    expected_direct_intents = 0.; expected_wheel_intents = 0.
+    quote_price_sum = 0.; quote_p_sum = 0.
+    available_seconds = 0.; blocked_seconds = 0.
 
     def show_action(index, owner):
         nonlocal social_events, performed_events
@@ -149,7 +161,16 @@ def run(world, policy, seed, trace=False):
             assert not queue and not inflight and not np.any(pending_own)
             reason = 'action_quota'; break
 
-        arm = offer_arm(policy, completed, world.quota, work)
+        while demand_events and demand_events[0][0] <= sec - 300:
+            demand_events.popleft()
+        observation = dict(seconds=sec, completed=completed, quota=world.quota,
+            outstanding=len(queue)+len(inflight), work=max(0.,work),
+            recent_direct_intents=sum(e[1] == 1 for e in demand_events),
+            recent_wheel_intents=sum(e[1] == 2 for e in demand_events))
+        arm = policy(observation) if callable(policy) else offer_arm(policy, completed, world.quota, work)
+        if not isinstance(arm, int) or not 0 <= arm < len(prices): raise ValueError('Invalid offer arm')
+        available_seconds += 10
+        blocked_seconds += 10 * (completed+len(queue)+len(inflight) >= world.quota or work+reserved+120 > 180+1e-8)
         arm_history.append(arm)
         shocks = rng.random((n, 4))
         visible = (pop['arrival'] <= sec) & (pop['departure'] > sec) & ~left
@@ -176,34 +197,39 @@ def run(world, policy, seed, trace=False):
             direct_u -= .4 * purchases[i]
             if budget[i] < dprice or effective_willingness < .8: direct_u = -math.inf
             wheel_u = -math.inf
-            if arm and budget[i] >= OFFERS[arm]:
+            if arm and budget[i] >= prices[arm]:
                 # Expected subjective prize value includes mismatch with preferred action.
                 subjective = sum(Q[j] * PRICES[j] * pop['willingness'][i] * (1 if j == target[i] else .35) for j in range(4))
-                reward_u = 2 * (PS[arm] * subjective / OFFERS[arm] - 1)
+                reward_u = 2 * (probabilities[arm] * subjective / prices[arm] - 1)
                 novelty = pop['entertainment'][i] * math.exp(-world.novelty_decay * spins[i])
                 loss_penalty = (0.04 if pop['persistent'][i] else world.loss_fatigue) * losses[i]
                 wheel_u = reward_u + novelty + excitement[i] - .8 * satisfied[i] - loss_penalty - .08 * wait_minutes
                 # Cheap participation lowers entry resistance; preference for an action
                 # still penalizes a very small chance rather than treating odds as invisible.
-                wheel_u += .65 * math.log(32 / OFFERS[arm]) + .3 * math.log(PS[arm] / PS[4])
+                wheel_u += world.price_sensitivity * math.log(32 / prices[arm]) + world.probability_sensitivity * math.log(probabilities[arm] / PS[4])
                 wheel_u -= .1 * spins[i]
             weights = np.exp(np.clip(np.array([0., direct_u, wheel_u]), -700, 20))
             weights[~np.isfinite([0., direct_u, wheel_u])] = 0
             probs = weights / weights.sum()
+            decision_exposures += 1
+            expected_direct_intents += probs[1]; expected_wheel_intents += probs[2]
+            quote_price_sum += prices[arm]; quote_p_sum += probabilities[arm]
             choice = int(np.searchsorted(np.cumsum(probs), shocks[i, 2], side='right'))
             choice = min(choice, 2)
             if choice == 0:continue
             intents += 1
+            direct_intents += choice == 1; wheel_intents += choice == 2
+            demand_events.append((sec, choice))
             slots = completed + len(queue) + len(inflight)
             reserve_work = 120. if choice == 2 else 2 * DURATIONS[target[i]]
             if slots >= world.quota or work + reserved + reserve_work > 180 + 1e-8:
                 refused += 1; next_decision[i] = sec + 60; continue
-            price = OFFERS[arm] if choice == 2 else dprice
+            price = prices[arm] if choice == 2 else dprice
             budget[i] -= price; spent[i] += price; revenue += price
             pending_own[i] += 1; next_decision[i] = sec + 30
             if choice == 2:
                 spins[i] += 1; spin_times[i].append(sec); wheel_spent[i] += price; processing += SPIN_COST
-                index = int(draws[i].choice(4, p=Q)); win = draws[i].random() < PS[arm]
+                index = int(draws[i].choice(4, p=Q)); win = draws[i].random() < probabilities[arm]
                 duration = DURATIONS[index] * draws[i].uniform(.8, 1.2) * (1 + world.streamer_fatigue * completed / world.quota)
                 reserved += 120.
                 inflight.append((i, win, index, duration, sec))
@@ -220,8 +246,8 @@ def run(world, policy, seed, trace=False):
         max_slots = max(max_slots, completed + len(queue) + len(inflight))
         peak_work = max(peak_work, work)
         if trace and sec % 60 == 0:
-            trace_rows.append(dict(minute=sec/60,price=OFFERS[arm],empty=1-PS[arm] if arm else None,
-                completed=completed,queue=len(queue),revenue=float(revenue),active=int(visible.sum()),spins=int(spins.sum()),direct=int(purchases.sum())))
+            trace_rows.append(dict(minute=sec/60,price=prices[arm],empty=1-probabilities[arm] if arm else None,
+                completed=completed,queue=len(queue),remaining_slots=world.quota-completed-len(queue)-len(inflight),work=work,recent_direct_intents=observation['recent_direct_intents'],recent_wheel_intents=observation['recent_wheel_intents'],revenue=float(revenue),active=int(visible.sum()),spins=int(spins.sum()),direct=int(purchases.sum())))
         remaining_audience = np.any((pop['departure'] > sec) & ~left & ~abstain)
         if not remaining_audience and not queue and not inflight:
             reason = 'audience_exhausted'; break
@@ -244,7 +270,11 @@ def run(world, policy, seed, trace=False):
         wheel_exposed=int(wheel_exposed.sum()),wheel_exposed_never_spin=int(np.sum(wheel_exposed & (spins==0))),
         accelerating_spinners=sum(len(t)>=5 and np.mean(np.diff(t[-3:])) < np.mean(np.diff(t[:3])) for t in spin_times),refused=refused,intents=intents,peak_work=peak_work,max_slots=max_slots,
         completed_wait_p95=float(np.quantile(wait_samples,.95)) if wait_samples else 0,
-        mean_p=float(np.mean([PS[a] for a in arm_history if a])) if any(arm_history) else 0)
+        mean_p=float(np.mean([probabilities[a] for a in arm_history if a])) if any(arm_history) else 0,
+        decision_exposures=decision_exposures,direct_intents=direct_intents,wheel_intents=wheel_intents,
+        expected_direct_intents=float(expected_direct_intents),expected_wheel_intents=float(expected_wheel_intents),
+        mean_quoted_price=quote_price_sum/max(1,decision_exposures),mean_quoted_p=quote_p_sum/max(1,decision_exposures),
+        capacity_blocked_fraction=blocked_seconds/max(1,available_seconds))
     for g,name in enumerate(GROUPS):
         mask=group==g
         result.update({name+'_viewers':int(mask.sum()),name+'_payers':int(np.sum(spent[mask]>0)),

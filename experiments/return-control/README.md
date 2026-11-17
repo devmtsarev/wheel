@@ -1,3 +1,7 @@
+# Latest: joint premium and supply-demand study
+
+See [the joint model](JOINT_MODEL.md) and [held-out results](results/JOINT_RESULTS.md) for variable premium, explicit demand measurements, scarce action inventory, and a policy shared across audience types. Live pricing is unchanged.
+
 # Fixed-premium return controller — experimental
 
 **New: individual viewers and a finite action quota.** See [AGENT_MODEL.md](AGENT_MODEL.md) and [the new results](results/AGENT_RESULTS.md) for cohort-level cannibalization, conversion, changing gaming behavior and whole-stream return. The original rate-based experiment below remains a separate baseline.
