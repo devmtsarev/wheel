@@ -30,6 +30,13 @@ class World:
     novelty_decay: float = .035
     price_sensitivity: float = .65
     probability_sensitivity: float = .3
+    target_mix: tuple = (.15, .30, .35, .20)
+    action_appeal: tuple = (1., 1., 1., 1.)
+    action_durations: tuple = (5., 15., 30., 60.)
+    action_costs: tuple = (7., 21., 42., 84.)
+    action_social: tuple = (1., 1., 1., 1.)
+    action_satisfaction: tuple = (1., 1., 1., 1.)
+    repetition_decay: float = 0.
     seed_version: int = 1
 
 WORLDS = {
@@ -46,7 +53,7 @@ def population(world, seed):
     n = world.viewers
     group = rng.choice(3, n, p=world.group_mix)
     style = rng.choice(3, n, p=world.style_mix)
-    target = rng.choice(4, n, p=[.15, .30, .35, .20])
+    target = rng.choice(4, n, p=world.target_mix)
     willingness = np.clip(rng.normal(np.array([1.35, .95, .42])[group], .13), .1, 1.8)
     budget = np.maximum(8, np.round(PRICES[target] * rng.uniform(.8, 2.0, n)))
     budget[group == 0] = np.maximum(budget[group == 0], PRICES[target[group == 0]])
@@ -76,7 +83,7 @@ def offer_arm(policy, completed, quota, work):
     raise ValueError(policy)
 
 
-def run(world, policy, seed, trace=False, offers=None):
+def run(world, policy, seed, trace=False, offers=None, reward_mixes=None):
     if world.quota < 1 or world.viewers < 1 or world.delivery_fraction <= 0 or not 0 <= world.streamer_fatigue <= 2/1.2-1:
         raise ValueError('Positive quota, viewer count and delivery capacity required')
     prices, probabilities = (OFFERS, PS) if offers is None else offers
@@ -84,6 +91,18 @@ def run(world, policy, seed, trace=False, offers=None):
         raise ValueError('Offer zero must be unavailable')
     if any(not math.isfinite(p) or p <= 0 for p in prices[1:]) or any(not 0 < p < 1 for p in probabilities[1:]):
         raise ValueError('Paid offers require positive finite prices and a nonzero empty outcome')
+    durations=np.asarray(world.action_durations,dtype=float)
+    costs=np.asarray(world.action_costs,dtype=float)
+    for field in ('target_mix','action_appeal','action_durations','action_costs','action_social','action_satisfaction'):
+        values=np.asarray(getattr(world,field),dtype=float)
+        if values.shape != (4,) or not np.all(np.isfinite(values)) or np.any(values<0):
+            raise ValueError('Action attributes must be four finite nonnegative values')
+    if not math.isclose(sum(world.target_mix),1) or np.any(durations<=0) or 2*max(durations)>180 or world.repetition_decay<0:
+        raise ValueError('Invalid action preference distribution or service bounds')
+    worst=2*max(durations)
+    mixes=np.tile(Q,(len(prices),1)) if reward_mixes is None else np.asarray(reward_mixes,dtype=float)
+    if mixes.shape != (len(prices),4) or not np.all(np.isfinite(mixes)) or np.any(mixes<=0) or not np.allclose(mixes.sum(axis=1),1,rtol=0,atol=1e-12):
+        raise ValueError('Every offer requires four positive conditional reward probabilities summing to one')
     pop = population(world, seed)
     n = world.viewers
     budget = pop['budget'].copy()
@@ -110,6 +129,8 @@ def run(world, policy, seed, trace=False, offers=None):
     fatigue_stops = 0; waiting_stops = 0; wait_samples = []
     trace_rows = []; arm_history = []; reason = 'observation_cutoff'; sec = 0
     action_counts = np.zeros(4, dtype=int)
+    wheel_awards=np.zeros(4,dtype=int);direct_awards=np.zeros(4,dtype=int)
+    direct_attempts=np.zeros(4,dtype=int);assigned_work=np.zeros(4)
     demand_events = deque()
     decision_exposures = 0; direct_intents = 0; wheel_intents = 0
     expected_direct_intents = 0.; expected_wheel_intents = 0.
@@ -121,21 +142,21 @@ def run(world, policy, seed, trace=False, offers=None):
         performed_events += 1
         visible = (pop['arrival'] <= sec) & (pop['departure'] > sec) & ~left
         exposure = np.where(style == 0, 1., np.where(style == 1, 0., -.7))
-        excitement[visible] = np.clip(excitement[visible] + world.social_strength * exposure[visible], -2, 3)
+        excitement[visible] = np.clip(excitement[visible] + world.social_strength * world.action_social[index] * math.exp(-world.repetition_decay * max(0,action_counts[index]-1)) * exposure[visible], -2, 3)
         matching = visible & (target == index)
         # Seeing the public action can satisfy the need without buying it.
-        satisfied[matching] = np.minimum(1.5, satisfied[matching] + world.shared_satisfaction)
+        satisfied[matching] = np.minimum(1.5, satisfied[matching] + world.shared_satisfaction * world.action_satisfaction[index])
         satisfied[owner] = min(1.5, satisfied[owner] + (1. if target[owner] == index else .18))
         social_events += 1
 
     for sec in range(0, world.max_minutes * 60, 10):
         # Resolve all accepted spins under their captured arm. No outcome is redrawn.
         for owner, win, index, duration, issued in inflight:
-            reserved -= 120.
+            reserved -= worst
             if win:
                 wins[owner] += 1; losses[owner] = 0; awarded += 1
                 excitement[owner] = min(3, excitement[owner] + .8)
-                delivery_cost += COST * PRICES[index]
+                delivery_cost += costs[index];wheel_awards[index] += 1;assigned_work[index] += duration
                 queue.append([duration, owner, index, 'wheel', issued]); work += duration
             else:
                 pending_own[owner] -= 1
@@ -170,7 +191,7 @@ def run(world, policy, seed, trace=False, offers=None):
         arm = policy(observation) if callable(policy) else offer_arm(policy, completed, world.quota, work)
         if not isinstance(arm, int) or not 0 <= arm < len(prices): raise ValueError('Invalid offer arm')
         available_seconds += 10
-        blocked_seconds += 10 * (completed+len(queue)+len(inflight) >= world.quota or work+reserved+120 > 180+1e-8)
+        blocked_seconds += 10 * (completed+len(queue)+len(inflight) >= world.quota or work+reserved+worst > 180+1e-8)
         arm_history.append(arm)
         shocks = rng.random((n, 4))
         visible = (pop['arrival'] <= sec) & (pop['departure'] > sec) & ~left
@@ -192,14 +213,14 @@ def run(world, policy, seed, trace=False, offers=None):
                 abstain[i] = True; waiting_stops += 1; continue
             dprice = PRICES[target[i]]
             # Outside choice (watch/do nothing) is explicit. Utilities are hypotheses.
-            effective_willingness = pop['willingness'][i] + .1 * max(0, excitement[i])
+            effective_willingness = pop['willingness'][i] * world.action_appeal[target[i]] + .1 * max(0, excitement[i])
             direct_u = 3 * (effective_willingness - 1) + .15 * excitement[i] - 2.5 * satisfied[i] - .12 * wait_minutes
             direct_u -= .4 * purchases[i]
             if budget[i] < dprice or effective_willingness < .8: direct_u = -math.inf
             wheel_u = -math.inf
             if arm and budget[i] >= prices[arm]:
                 # Expected subjective prize value includes mismatch with preferred action.
-                subjective = sum(Q[j] * PRICES[j] * pop['willingness'][i] * (1 if j == target[i] else .35) for j in range(4))
+                subjective = sum(mixes[arm,j] * PRICES[j] * world.action_appeal[j] * pop['willingness'][i] * (1 if j == target[i] else .35) for j in range(4))
                 reward_u = 2 * (probabilities[arm] * subjective / prices[arm] - 1)
                 novelty = pop['entertainment'][i] * math.exp(-world.novelty_decay * spins[i])
                 loss_penalty = (0.04 if pop['persistent'][i] else world.loss_fatigue) * losses[i]
@@ -219,9 +240,10 @@ def run(world, policy, seed, trace=False, offers=None):
             if choice == 0:continue
             intents += 1
             direct_intents += choice == 1; wheel_intents += choice == 2
+            if choice==1:direct_attempts[target[i]] += 1
             demand_events.append((sec, choice))
             slots = completed + len(queue) + len(inflight)
-            reserve_work = 120. if choice == 2 else 2 * DURATIONS[target[i]]
+            reserve_work = worst if choice == 2 else 2 * durations[target[i]]
             if slots >= world.quota or work + reserved + reserve_work > 180 + 1e-8:
                 refused += 1; next_decision[i] = sec + 60; continue
             price = prices[arm] if choice == 2 else dprice
@@ -229,18 +251,18 @@ def run(world, policy, seed, trace=False, offers=None):
             pending_own[i] += 1; next_decision[i] = sec + 30
             if choice == 2:
                 spins[i] += 1; spin_times[i].append(sec); wheel_spent[i] += price; processing += SPIN_COST
-                index = int(draws[i].choice(4, p=Q)); win = draws[i].random() < probabilities[arm]
-                duration = DURATIONS[index] * draws[i].uniform(.8, 1.2) * (1 + world.streamer_fatigue * completed / world.quota)
-                reserved += 120.
+                index = int(draws[i].choice(4, p=mixes[arm])); win = draws[i].random() < probabilities[arm]
+                duration = durations[index] * draws[i].uniform(.8, 1.2) * (1 + world.streamer_fatigue * completed / world.quota)
+                reserved += worst
                 inflight.append((i, win, index, duration, sec))
             else:
                 purchases[i] += 1; direct_spent[i] += price; awarded += 1
                 index = target[i]
-                duration = DURATIONS[index] * draws[i].uniform(.8, 1.2) * (1 + world.streamer_fatigue * completed / world.quota)
-                delivery_cost += COST * price
+                duration = durations[index] * draws[i].uniform(.8, 1.2) * (1 + world.streamer_fatigue * completed / world.quota)
+                delivery_cost += costs[index];direct_awards[index] += 1;assigned_work[index] += duration
                 queue.append([duration, i, index, 'direct', sec]); work += duration
             assert budget[i] >= -1e-8
-            assert duration <= 2 * DURATIONS[index] + 1e-8
+            assert duration <= 2 * durations[index] + 1e-8
             assert completed + len(queue) + len(inflight) <= world.quota
             assert work + reserved <= 180 + 1e-8
         max_slots = max(max_slots, completed + len(queue) + len(inflight))
@@ -254,7 +276,7 @@ def run(world, policy, seed, trace=False, offers=None):
     # At an observation cutoff, settle charged spins, but never mark awards delivered.
     for owner, win, index, duration, issued in inflight:
         if win:
-            wins[owner] += 1; awarded += 1; delivery_cost += COST * PRICES[index]; work += duration
+            wins[owner] += 1; awarded += 1; delivery_cost += costs[index];wheel_awards[index] += 1;assigned_work[index] += duration; work += duration
     duration_minutes = (sec + 10) / 60
     operating_cost = duration_minutes * world.fixed_cost_per_minute
     net = revenue - delivery_cost - processing - operating_cost
@@ -275,6 +297,14 @@ def run(world, policy, seed, trace=False, offers=None):
         expected_direct_intents=float(expected_direct_intents),expected_wheel_intents=float(expected_wheel_intents),
         mean_quoted_price=quote_price_sum/max(1,decision_exposures),mean_quoted_p=quote_p_sum/max(1,decision_exposures),
         capacity_blocked_fraction=blocked_seconds/max(1,available_seconds))
+    for j in range(4):
+        result.update({f'action_{j}_wheel_awards':int(wheel_awards[j]),f'action_{j}_direct_awards':int(direct_awards[j]),
+            f'action_{j}_direct_intents':int(direct_attempts[j]),f'action_{j}_direct_revenue':float(direct_awards[j]*PRICES[j]),
+            f'action_{j}_cost':float((wheel_awards[j]+direct_awards[j])*costs[j]),
+            f'action_{j}_assigned_work':float(assigned_work[j]),f'action_{j}_completed':int(action_counts[j])})
+    assert int(wheel_awards.sum()) == int(wins.sum())
+    assert int(direct_awards.sum()) == int(purchases.sum())
+    assert math.isclose(float((wheel_awards+direct_awards)@costs),delivery_cost,abs_tol=1e-7)
     for g,name in enumerate(GROUPS):
         mask=group==g
         result.update({name+'_viewers':int(mask.sum()),name+'_payers':int(np.sum(spent[mask]>0)),
