@@ -1,5 +1,7 @@
 # Fixed-premium return controller — experimental
 
+**New: individual viewers and a finite action quota.** See [AGENT_MODEL.md](AGENT_MODEL.md) and [the new results](results/AGENT_RESULTS.md) for cohort-level cannibalization, conversion, changing gaming behavior and whole-stream return. The original rate-based experiment below remains a separate baseline.
+
 The operator sets the premium. The system chooses empty-outcome probability and derives the matching spin price to maximize combined wheel and direct-purchase net contribution, subject to fulfilment capacity. There are no new operator controls for win rate, pacing or admission.
 
 This directory contains a **research implementation and reproducible simulator**. It is not connected to the live widget, server, payment path or current pricing model. Simulation results do not justify enabling autonomous pricing in production. The existing server's price-stepping mechanism is not replaced by this diff.
