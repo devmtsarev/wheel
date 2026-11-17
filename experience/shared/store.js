@@ -36,16 +36,17 @@ export function priceMenu(menu,price,markup){
   const ev=calculated.reduce((n,p)=>n+p.value*(p.weight/100),0);
   return {menu:calculated,ev,target,actualMarkup:(price/ev-1)*100,maxPrice};
 }
-export function automaticPricing(menu,markup){
+export function automaticPricing(menu,markup,targetWinProbability=0.8){
+  if(!Number.isFinite(targetWinProbability)||targetWinProbability<=0||targetWinProbability>=1)throw new Error('Win frequency must be between zero and one, with an empty outcome.');
   const actions=menu.filter(p=>p.kind!=='none');
   if(!actions.length||actions.some(p=>!Number.isSafeInteger(p.value)||p.value<1))throw new Error('Direct-purchase prices must be positive whole tokens within numeric precision.');
   if(!Number.isFinite(markup)||markup<=0)throw new Error('Markup must be a positive finite percentage.');
   const maxPrice=(1+markup/100)*actions.length/actions.reduce((n,p)=>n+1/p.value,0);
-  // Target 20% no prize, then use a whole-token price and rederive all probabilities.
-  const price=Math.max(1,Math.floor(maxPrice*0.8));
+  // Default pacing is 20% no prize; the experimental demo can supply another target.
+  const price=Math.max(1,Math.floor(maxPrice*targetWinProbability));
   return {...priceMenu(menu,price,markup),price};
 }
-export function menuFor(s){return s.menu||automaticPricing(defaultMenu(),s.markup??20).menu;}
+export function menuFor(s){return s.menu||automaticPricing(defaultMenu(),s.markup??20,s.targetWinProbability??0.8).menu;}
 export function widgetItems(menu){return menu.map(p=>({id:p.id,title:p.title||p.name,label:p.label||p.short,menu:p.value,ppm:Math.round(p.weight*10000),color:p.color,kind:p.kind==='none'?'none':p.id==='jackpot'?'jackpot':'regular'}));}
 export function saveMenu(menu,expectedVersion,pricing={}){return transact(async s=>{
   if(s.version!==expectedVersion)throw new Error('The wheel changed in another view. Reload the menu before saving.');
@@ -62,10 +63,11 @@ export function saveMenu(menu,expectedVersion,pricing={}){return transact(async 
   });
   if(!clean.some(p=>p.kind==='experience'))throw new Error('Include at least one experience prize.');
   const markup=pricing.markup??s.markup??20;
-  const calculated=automaticPricing(clean,markup),price=calculated.price;
+  const targetWinProbability=pricing.targetWinProbability??s.targetWinProbability??0.8;
+  const calculated=automaticPricing(clean,markup,targetWinProbability),price=calculated.price;
   if(calculated.menu.length>12)throw new Error('Use at most 11 actions plus no prize.');
   if(s.epoch)(s.archivedEpochs??=[]).push({...s.epoch,menu:menuFor(s)});
-  s.epoch=await newEpoch((s.epoch?.id||0)+1);s.menu=calculated.menu;delete s.pricingError;s.price=price;s.markup=markup;s.version++;return s.version;
+  s.epoch=await newEpoch((s.epoch?.id||0)+1);s.menu=calculated.menu;delete s.pricingError;s.price=price;s.markup=markup;s.targetWinProbability=targetWinProbability;s.version++;return s.version;
 });}
 export const MENU_REVISION = 5;
 export function initialState(){ return {schema:1,menuRevision:MENU_REVISION,balance:400,paused:false,version:1,price:automaticPricing(defaultMenu(),20).price,markup:20,spins:[]}; }
