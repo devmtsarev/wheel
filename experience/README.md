@@ -114,3 +114,32 @@ Cross-origin theming uses an origin/source-checked message handshake, not iframe
 Try `/experience/demos/themes/` for light blue, dark lavender and warm terracotta websites.
 CSS background images, gradients, canvas/video and closed shadow roots are not analyzed;
 use overrides when the declared CSS colors do not represent the visible site.
+
+## Supply-demand demo (follow-up to PR #5)
+
+`/demo/` opens the gallery. The new `/experience/demos/supply-demand/` lab compares
+seven audience worlds and four policies, plots training demand/return curves, and
+replays seed 20000 from the recorded joint-pricing experiment. It fetches a checked-in
+JSON file, so it works on GitHub Pages without Python, a server API or a build step.
+This is recorded replay plus an offer preview, not browser-side policy training.
+
+“Use this offer in player demo” installs the model's four-action menu and captured
+premium/pacing in the shared browser-local ledger. Whole-token rounding is shown
+before applying. It creates a new version and preserves balance, existing spins,
+pending prizes and historical refunds. Operator edits preserve the applied pacing;
+“Restore standard pacing” resets premium to 20% and target wins to 80% while keeping
+the current menu and ledger. Merely opening the lab, changing audience, or replaying
+never changes demo pricing. No runtime optimizer or simulated action quota is enabled
+in the player widget or production server.
+
+To regenerate the compact fixture after rerunning the joint experiment:
+
+```sh
+python3 experience/scripts/export-supply-demand.py experiments/return-control/generated/joint-expanded
+node --test experience/demos/supply-demand/data.test.mjs experience/shared/store.test.mjs
+```
+
+The fixture includes source hashes, training/evaluation summaries, the measured demand
+surface and recorded traces. Held-out sensitivity audiences have no training curves;
+that absence is shown explicitly. Long-term retention and perceived fairness remain
+outside the model, and its high selected premiums are not deployment recommendations.
