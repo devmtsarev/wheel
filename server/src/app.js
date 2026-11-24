@@ -1,4 +1,5 @@
-// HTTP API по api/openapi.yaml. Деньги не хранятся: списание — через вебхуки charge.* платформе.
+// HTTP API по api/openapi.yaml. Деньги вендор не видит и не трогает: платформа сама решает,
+// списывать ли токены и сколько, и сообщает сумму при подтверждении вращения (commit).
 'use strict';
 const http = require('node:http');
 const crypto = require('node:crypto');
@@ -12,7 +13,7 @@ const { normalizeItems, quote, DEFAULT_K, DEFAULT_PARAMS } = require('./pricing.
 const { admissionCheck, dynamicPrice } = require('./admission.js');
 
 const PRICE_VALID_FOR_S = 30;
-const RESERVE_TTL_S = 60;
+const SPIN_TTL_S = 60; // сколько вращение ждёт подтверждения оплаты от платформы
 
 const FAIR_ALGORITHM =
   'HMAC-SHA256(server_seed, client_seed + ":" + nonce) -> первые непревышающие 4 байта по модулю 1000000 ' +
@@ -99,12 +100,13 @@ function createApp(config) {
     return { status: 201, body: wheelView(wheel) };
   }
 
-  async function createSpin(pl, body, widget) {
+  function createSpin(pl, body, widget) {
     const wheel = store.wheels.get(body.wheel_id);
     if (!wheel || wheel.platform_id !== pl.id) return { status: 404, body: { code: 'not_found', message: 'нет такой версии колеса' } };
     if (widget && widget.wheel_id !== wheel.id) return { status: 403, body: { code: 'forbidden', message: 'токен выдан на другое колесо' } };
     const viewerId = widget ? widget.viewer_id : body.viewer_id;
 
+    // вендор проверяет только ёмкость модели и цену; баланс, лимиты и акции — дело платформы
     const adm = admissionCheck(store, wheel);
     if (!adm.ok) return { status: 409, body: { code: adm.reason, message: 'вращение сейчас не продаётся', reason: adm.reason, retry_after_s: adm.retry_after_s } };
 
@@ -113,51 +115,40 @@ function createApp(config) {
       return { status: 409, body: { code: 'price_changed', message: `цена изменилась: сейчас ${price}`, price } };
     }
 
-    // акция: paid_price из глубины скидки; фриспин — 0; не ниже S_min (кроме фриспина)
-    let promo = null, paid = price;
-    if (body.promo_code) {
-      const pid = store.promosByCode.get(body.promo_code);
-      promo = pid ? store.promos.get(pid) : null;
-      const now = Date.now();
-      const inWindow = promo && (!promo.starts_at || now >= +new Date(promo.starts_at)) && (!promo.ends_at || now <= +new Date(promo.ends_at));
-      if (!promo || !promo.active || !inWindow || promo.used_spins >= promo.budget_spins || promo.model_id !== wheel.model_id) {
-        return { status: 409, body: { code: 'promo_invalid', message: 'акция не действует' } };
-      }
-      paid = promo.kind === 'freespin' ? 0 : Math.round(price * (1 - promo.discount));
-      if (promo.kind !== 'freespin' && paid < wheel.bounds.s_min) {
-        return { status: 409, body: { code: 'promo_invalid', message: `цена со скидкой ${paid} ниже S_min ${wheel.bounds.s_min}` } };
-      }
-    }
-
     const { seed, hash } = newServerSeed();
     const nonce = [...store.spins.values()].filter((s) => s.viewer_id === viewerId && s.wheel_id === wheel.id).length;
     const spin = {
       id: store.id('spn'), wheel_id: wheel.id, model_id: wheel.model_id, viewer_id: viewerId,
-      status: 'reserved', price, paid_price: paid, promo_id: promo ? promo.id : null,
-      reserve_expires_at: new Date(Date.now() + RESERVE_TTL_S * 1000).toISOString(),
+      status: 'requested', price, paid_price: null,
+      expires_at: new Date(Date.now() + SPIN_TTL_S * 1000).toISOString(),
       server_seed_hash: hash, _server_seed: seed,
       client_seed: body.client_seed, nonce,
       content_hash: wheel.content_hash,
-      created_at: new Date().toISOString(), committed_at: null, result: null,
+      created_at: new Date().toISOString(), committed_at: null, result: null, cancel_message: null,
     };
-
-    const wh = hooks.get(pl.id);
-    const ok = await wh.sendReserve(wh.newEvent('charge.reserve', {
-      spin_id: spin.id, model_id: spin.model_id, viewer_id: viewerId, amount: paid, promo_id: spin.promo_id,
-    }));
-    if (!ok) return { status: 502, body: { code: 'reserve_failed', message: 'платформа не подтвердила резерв' } };
-
-    if (promo) promo.used_spins += 1;
     store.spins.set(spin.id, spin);
-    store.audit('spin.reserved', { spin_id: spin.id, wheel_id: wheel.id, price, paid });
+    store.audit('spin.requested', { spin_id: spin.id, wheel_id: wheel.id, price });
+
+    // уведомление, а не запрос денег: вендор не ждёт ответа
+    const wh = hooks.get(pl.id);
+    wh.deliver(wh.newEvent('spin.requested', {
+      spin_id: spin.id, wheel_id: wheel.id, model_id: spin.model_id, viewer_id: viewerId,
+      price, server_seed_hash: hash, expires_at: spin.expires_at,
+    }));
     broadcast(wheel.id, { type: 'spin.created', spin_id: spin.id, viewer_id: viewerId });
     return { status: 201, body: spinView(spin) };
   }
 
-  function commitSpin(pl, spin) {
+  function commitSpin(pl, spin, body) {
     if (spin.status === 'committed') return { status: 200, body: spinView(spin) }; // идемпотентно по смыслу
-    if (spin.status !== 'reserved') return { status: 409, body: { code: 'spin_not_reserved', message: `статус ${spin.status}` } };
+    if (!Number.isInteger(body.paid_amount) || body.paid_amount < 0) {
+      return { status: 422, body: { code: 'validation_failed', message: 'paid_amount: целое число токенов ≥ 0, которое платформа фактически списала' } };
+    }
+    if (spin.status === 'requested' && +new Date(spin.expires_at) < Date.now()) cancelSpin(pl, spin, 'expired');
+    if (spin.status === 'expired') return { status: 409, body: { code: 'spin_expired', message: 'срок подтверждения истёк; платформа возвращает списанное у себя' } };
+    if (spin.status !== 'requested') return { status: 409, body: { code: 'spin_not_requested', message: `статус ${spin.status}` } };
     const wheel = store.wheels.get(spin.wheel_id);
+    spin.paid_price = body.paid_amount; // сумму решает платформа; вендор её только записывает
 
     const roll = rollPpm(spin._server_seed, spin.client_seed, spin.nonce);
     const idx = pickIndex(wheel.items.map((i) => i.ppm), roll);
@@ -173,28 +164,31 @@ function createApp(config) {
     spin.status = 'committed';
     spin.committed_at = new Date().toISOString();
     spin.result = { item_index: idx, item_name: item.name, item_price: item.price, roll_ppm: roll, queue_item_id: queueItem.id };
-    store.audit('spin.committed', { spin_id: spin.id, roll_ppm: roll, item: item.name });
+    store.audit('spin.committed', { spin_id: spin.id, paid: spin.paid_price, roll_ppm: roll, item: item.name });
 
     const wh = hooks.get(pl.id);
-    wh.deliver(wh.newEvent('charge.commit', { spin_id: spin.id, model_id: spin.model_id, viewer_id: spin.viewer_id, amount: spin.paid_price, promo_id: spin.promo_id }));
     wh.deliver(wh.newEvent('spin.result', {
       spin_id: spin.id, model_id: spin.model_id, viewer_id: spin.viewer_id,
       result: { item_name: item.name, item_price: item.price, queue_item_id: queueItem.id },
       fairness: { server_seed_hash: spin.server_seed_hash, roll_ppm: roll },
     }));
 
-    broadcast(wheel.id, { type: 'spin.result', spin_id: spin.id, item_name: item.name, item_price: item.price, roll_ppm: roll, server_seed_hash: spin.server_seed_hash });
+    broadcast(wheel.id, { type: 'spin.result', spin_id: spin.id, viewer_id: spin.viewer_id, item_name: item.name, item_price: item.price, roll_ppm: roll, server_seed_hash: spin.server_seed_hash });
     notifyQueue(wheel);
     return { status: 200, body: spinView(spin) };
   }
 
-  function cancelSpin(pl, spin, reason = 'cancelled') {
-    if (spin.status !== 'reserved') return { status: 409, body: { code: 'spin_not_reserved', message: `статус ${spin.status}` } };
+  // отмена платформой (отказ в оплате, с сообщением для зрителя) или истечение срока
+  function cancelSpin(pl, spin, reason = 'cancelled', message = null) {
+    if (spin.status !== 'requested') return { status: 409, body: { code: 'spin_not_requested', message: `статус ${spin.status}` } };
     spin.status = reason;
-    const wh = hooks.get(pl.id);
-    wh.deliver(wh.newEvent('charge.release', { spin_id: spin.id, model_id: spin.model_id, viewer_id: spin.viewer_id, amount: spin.paid_price, promo_id: spin.promo_id }));
-    if (spin.promo_id && store.promos.has(spin.promo_id)) store.promos.get(spin.promo_id).used_spins -= 1;
+    spin.cancel_message = typeof message === 'string' ? message.slice(0, 200) : null;
     store.audit('spin.' + reason, { spin_id: spin.id });
+    if (reason === 'expired') {
+      const wh = hooks.get(pl.id);
+      wh.deliver(wh.newEvent('spin.expired', { spin_id: spin.id, model_id: spin.model_id, viewer_id: spin.viewer_id }));
+    }
+    broadcast(spin.wheel_id, { type: 'spin.' + reason, spin_id: spin.id, viewer_id: spin.viewer_id, message: spin.cancel_message });
     return { status: 200, body: spinView(spin) };
   }
 
@@ -214,11 +208,11 @@ function createApp(config) {
     }
   }
 
-  // просроченные резервы: каждые 5 секунд
+  // вращения без подтверждения оплаты: каждые 5 секунд
   const sweeper = setInterval(() => {
     const now = Date.now();
     for (const spin of store.spins.values()) {
-      if (spin.status === 'reserved' && +new Date(spin.reserve_expires_at) < now) {
+      if (spin.status === 'requested' && +new Date(spin.expires_at) < now) {
         const pl = Object.values(config.platforms).find((p) => p.id === store.wheels.get(spin.wheel_id).platform_id);
         cancelSpin(pl, spin, 'expired');
       }
@@ -324,7 +318,7 @@ function createApp(config) {
     if (method === 'POST' && path === '/v1/pricing/quote') {
       return send(res, 200, quote(body.items, body.price_k || DEFAULT_K, body.params || {}));
     }
-    if (method === 'POST' && path === '/v1/spins') return reply(await createSpin(platform, body, w));
+    if (method === 'POST' && path === '/v1/spins') return reply(createSpin(platform, body, w));
     if (method === 'GET' && path === '/v1/spins') {
       let items = [...store.spins.values()].filter((s) => store.wheels.get(s.wheel_id)?.platform_id === platform.id);
       for (const [q, f] of [['model_id', 'model_id'], ['wheel_id', 'wheel_id'], ['viewer_id', 'viewer_id'], ['status', 'status']]) {
@@ -351,8 +345,8 @@ function createApp(config) {
           algorithm: FAIR_ALGORITHM,
         });
       }
-      if (sub === 'commit' && method === 'POST' && pl) return reply(commitSpin(platform, spin));
-      if (sub === 'cancel' && method === 'POST' && pl) return reply(cancelSpin(platform, spin));
+      if (sub === 'commit' && method === 'POST' && pl) return reply(commitSpin(platform, spin, body));
+      if (sub === 'cancel' && method === 'POST' && pl) return reply(cancelSpin(platform, spin, 'cancelled', body.message));
     }
     if ((g = m(/^\/v1\/models\/([^/]+)\/stream$/)) && method === 'PUT') {
       const prev = store.streamOf(g[1]);
@@ -385,20 +379,6 @@ function createApp(config) {
       }
       return reply({ status: 200, body: rec.item });
     }
-    if (method === 'POST' && path === '/v1/promos') {
-      if (body.kind === 'coupon' && !body.code) return err(res, 422, 'validation_failed', 'для купона нужен code');
-      const promo = {
-        id: store.id('prm'), model_id: body.model_id, kind: body.kind,
-        discount: body.kind === 'freespin' ? 1 : body.discount,
-        budget_spins: body.budget_spins || 1, used_spins: 0, active: true,
-        starts_at: body.starts_at || null, ends_at: body.ends_at || null,
-        code: body.code || store.id('promo'),
-      };
-      if (promo.kind !== 'freespin' && !(promo.discount > 0 && promo.discount < 1)) return err(res, 422, 'validation_failed', 'discount должен быть в (0, 1)');
-      store.promos.set(promo.id, promo);
-      store.promosByCode.set(promo.code, promo.id);
-      return reply({ status: 201, body: promo });
-    }
     return err(res, 404, 'not_found', 'нет такого метода');
   }
 
@@ -427,4 +407,4 @@ function createApp(config) {
   };
 }
 
-module.exports = { createApp, PRICE_VALID_FOR_S, RESERVE_TTL_S };
+module.exports = { createApp, PRICE_VALID_FOR_S, SPIN_TTL_S };

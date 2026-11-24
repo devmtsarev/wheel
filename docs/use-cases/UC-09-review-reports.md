@@ -14,21 +14,28 @@ Post: dashboard and CSV export that match the settlement report (UC-14).
 
 ## Main
 1. Operator selects period and model in the panel. [prototype: experience/manage/]
-2. Panel shows gross, refunds, net, prize frequency vs configured chances, value win rate, jackpots. [prototype]
+2. Panel shows spins, total at spin price, total actually paid (as reported by the platform), discounts as the difference, refunds, net paid, prize frequency vs configured chances, value win rate, jackpots. [prototype: totals at price only]
 3. Panel shows the vendor fee and, after the pilot, uplift vs a control group. [gap]
 4. Operator exports CSV. [prototype]
 
 ## Exceptions
-- E1 (from step 2) large period: `GET /spins` returns one unpaged list, no aggregates (G14). [gap]
+- E1 (from step 2) Large period: `GET /spins` returns one unpaged list, no aggregates (G14). [gap]
 
 ## Acceptance
 ```gherkin
 Feature: UC-09 Review wheel reports
 
 @UC-09 @main @gap
-Scenario: Period report
-  Given 120 spins in November, 3 of them refunded
+Scenario: Main. Period report
+  Given 120 spins in November at price 50, 20 of them paid 25 and 3 refunded
   When the operator opens the November report
-  Then gross, refunds and net are shown and net equals gross minus refunds
-  And the vendor fee equals f times the net paid price
+  Then totals at price and paid are shown, with discounts as the difference
+  And net paid equals paid minus refunds
+  And the vendor fee equals f times net paid
+
+@UC-09 @E1 @gap
+Scenario: E1. Large period
+  Given 100000 spins in the period
+  When the operator opens the report
+  Then totals come from aggregates and the spin list is paged
 ```

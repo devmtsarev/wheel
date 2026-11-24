@@ -1,5 +1,5 @@
 // Отправка подписанных вебхуков платформе (api/README.md, раздел «Вебхуки»).
-// charge.reserve — синхронный, одна попытка с таймаутом; остальные — с повторами.
+// Все события асинхронные, с повторами; вендор никогда не ждёт ответа платформы.
 'use strict';
 const crypto = require('node:crypto');
 const { sign } = require('./sign.js');
@@ -31,14 +31,6 @@ function createWebhooks(platform, { transport = httpTransport, log = () => {} } 
     };
   }
 
-  // Синхронная часть создания вращения: нет 200 за timeoutMs — вращение не продаётся
-  async function sendReserve(event, timeoutMs = 5000) {
-    try {
-      const { status } = await transport({ ...payloadFor(event), timeoutMs });
-      return status === 200;
-    } catch { return false; }
-  }
-
   // Доставка с повторами; порядок между событиями не гарантируется
   function deliver(event, attempt = 0, firstAt = Date.now()) {
     transport(payloadFor(event)).then(({ status }) => {
@@ -56,7 +48,7 @@ function createWebhooks(platform, { transport = httpTransport, log = () => {} } 
 
   const newEvent = (type, data) => ({ event_id: `evt_${crypto.randomBytes(10).toString('hex')}`, type, created_at: new Date().toISOString(), ...data });
 
-  return { newEvent, sendReserve, deliver, stop() { for (const h of pending.values()) clearTimeout(h); pending.clear(); } };
+  return { newEvent, deliver, stop() { for (const h of pending.values()) clearTimeout(h); pending.clear(); } };
 }
 
 module.exports = { createWebhooks, RETRY_DELAYS_S };

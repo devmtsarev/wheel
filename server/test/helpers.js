@@ -20,17 +20,13 @@ const MENU = [
   { name: 'Особый номер (джекпот)', price: 500, weight: 2, role: 'jackpot', duration_s: 600 },
 ];
 
-// транспорт вебхуков в памяти: собирает события, резерв отвечает по сценарию
+// транспорт вебхуков в памяти: собирает события, всегда отвечает 200
 function memoryTransport() {
   const events = [];
-  let reserveOk = true;
   return {
     events,
-    setReserve(ok) { reserveOk = ok; },
     async transport({ body }) {
-      const ev = JSON.parse(body);
-      events.push(ev);
-      if (ev.type === 'charge.reserve') return { status: reserveOk ? 200 : 402 };
+      events.push(JSON.parse(body));
       return { status: 200 };
     },
   };

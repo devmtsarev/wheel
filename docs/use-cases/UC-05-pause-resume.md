@@ -19,18 +19,26 @@ Post: new spins refused with reason `paused`; queue kept; resume restores sales.
 4. Operator presses "Resume"; widgets get WS `wheel.resumed`. [gap]
 
 ## Alternatives
-- A1 (from step 1) workaround today: `PATCH /wheels/{id}` status retired, then active; viewers see `wheel_inactive`. [server]
+- A1 (from step 1) Workaround today: `PATCH /wheels/{id}` status retired, then active; viewers see `wheel_inactive`. [server]
 
 ## Acceptance
 ```gherkin
 Feature: UC-05 Pause and resume the wheel
 
 @UC-05 @main @gap
-Scenario: Pause keeps the queue
+Scenario: Main. Pause keeps the queue
   Given two prizes are pending in the model's queue
   When the operator pauses the wheel
   Then a new spin is refused with reason "paused"
   And both prizes remain pending
   When the operator resumes the wheel
-  Then spins are sold again
+  Then spins are accepted again
+
+@UC-05 @A1 @server
+Scenario: A1. Workaround by retiring the version
+  Given an active wheel version
+  When the operator retires it
+  Then a new spin is refused with reason "wheel_inactive"
+  When the operator activates it again
+  Then spins are accepted again
 ```
