@@ -1,5 +1,6 @@
-// Мок платформы для локального демо: принимает вебхуки, ведёт балансы зрителей,
-// после успешного резерва сам подтверждает оплату вызовом /spins/{id}/commit.
+// Мок платформы для локального демо: принимает вебхуки, ведёт балансы зрителей.
+// На spin.requested сам решает, платить ли: списывает токены и вызывает /commit с суммой,
+// или отказывает через /cancel с сообщением для зрителя.
 // Запуск: node mock-platform.js (порт 8081). Это не часть продукта — только стенд.
 'use strict';
 const http = require('node:http');
@@ -12,9 +13,16 @@ const VENDOR = process.env.VENDOR_URL || `http://localhost:${CONFIG.port}`;
 const PORT = Number(process.env.PORT || new URL(PLATFORM.webhook_url).port || 8081);
 
 const balances = new Map(); // viewer_id → tokens
-const reserves = new Map(); // spin_id → amount
+const charged = new Map();  // spin_id → списанная сумма, пока вендор не подтвердил розыгрыш
 const seen = new Set();     // event_id — дедупликация повторов
 const bal = (v) => balances.get(v) ?? (balances.set(v, 1000), 1000);
+function refund(spinId, viewerId) {
+  const amt = charged.get(spinId);
+  if (amt == null) return;
+  charged.delete(spinId);
+  balances.set(viewerId, bal(viewerId) + amt);
+  console.log(`[platform] вращение ${spinId} не подтверждено вовремя, возврат ${amt}`);
+}
 
 async function vendor(method, path, body) {
   const raw = body ? JSON.stringify(body) : '';
@@ -60,27 +68,28 @@ const server = http.createServer((req, res) => {
     if (seen.has(ev.event_id)) { res.writeHead(200); return res.end('{"ok":true,"dup":true}'); }
     seen.add(ev.event_id);
 
-    if (ev.type === 'charge.reserve') {
-      if (bal(ev.viewer_id) < ev.amount) { res.writeHead(402); return res.end('{"ok":false}'); }
-      balances.set(ev.viewer_id, bal(ev.viewer_id) - ev.amount);
-      reserves.set(ev.spin_id, ev.amount);
-      console.log(`[platform] reserve ${ev.amount} у ${ev.viewer_id} (spin ${ev.spin_id})`);
-      res.writeHead(200); res.end('{"ok":true}');
-      // подтверждаем оплату: в проде платформа делает это после своей проверки
-      setTimeout(() => vendor('POST', `/v1/spins/${ev.spin_id}/commit`).then(
-        (r) => console.log(`[platform] commit → ${r.status}${r.body.result ? ' приз: ' + r.body.result.item_name : ''}`),
-        (e) => console.error('[platform] commit failed', e.message)), 150);
-      return;
-    }
-    if (ev.type === 'charge.commit') { reserves.delete(ev.spin_id); console.log(`[platform] списано ${ev.amount} (spin ${ev.spin_id})`); }
-    if (ev.type === 'charge.release') {
-      const amt = reserves.get(ev.spin_id) ?? ev.amount;
-      reserves.delete(ev.spin_id);
-      balances.set(ev.viewer_id, bal(ev.viewer_id) + amt);
-      console.log(`[platform] резерв снят, возврат ${amt} (spin ${ev.spin_id})`);
-    }
-    if (ev.type === 'spin.result') console.log(`[platform] в ленту чата: ${ev.viewer_id} выиграл «${ev.result.item_name}»`);
     res.writeHead(200); res.end('{"ok":true}');
+
+    if (ev.type === 'spin.requested') {
+      // правила платформы: баланс, лимиты, акции. Здесь только баланс.
+      if (bal(ev.viewer_id) < ev.price) {
+        const r = await vendor('POST', `/v1/spins/${ev.spin_id}/cancel`, { message: 'Недостаточно токенов' });
+        return console.log(`[platform] отказ ${ev.viewer_id}: мало токенов → cancel ${r.status}`);
+      }
+      const paid = ev.price;
+      balances.set(ev.viewer_id, bal(ev.viewer_id) - paid);
+      charged.set(ev.spin_id, paid);
+      console.log(`[platform] списано ${paid} у ${ev.viewer_id} (spin ${ev.spin_id})`);
+      const r = await vendor('POST', `/v1/spins/${ev.spin_id}/commit`, { paid_amount: paid });
+      if (r.status === 200) {
+        charged.delete(ev.spin_id);
+        return console.log(`[platform] commit → приз: ${r.body.result.item_name}`);
+      }
+      if (r.body.code === 'spin_expired') refund(ev.spin_id, ev.viewer_id);
+      return console.log(`[platform] commit → ${r.status} ${r.body.code}`);
+    }
+    if (ev.type === 'spin.expired') refund(ev.spin_id, ev.viewer_id);
+    if (ev.type === 'spin.result') console.log(`[platform] в ленту чата: ${ev.viewer_id} выиграл «${ev.result.item_name}»`);
   });
 });
 

@@ -1,13 +1,15 @@
 openapi: 3.1.0
 info:
   title: Prize Wheel API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     API вендорского «колеса призов» для вебкам-платформы.
 
-    Роли: **платформа** (клиент API, держит баланс токенов зрителей), **модель** (исполняет призы,
-    пользуется панелью очереди), **зритель** (крутит колесо в виджете). Вендор не хранит деньги:
-    списание идёт через резерв и подтверждение на стороне платформы (вебхуки `charge.*`).
+    Роли: **платформа** (клиент API, держит баланс токенов зрителей и решает, списывать ли их),
+    **модель** (исполняет призы), **зритель** (крутит колесо в виджете). Вендор не видит баланс,
+    лимиты и акции: он фиксирует цену, уведомляет платформу (`spin.requested`), а платформа
+    по своим правилам списывает токены и подтверждает вращение с фактической суммой
+    (`POST /spins/{id}/commit`) или отказывает (`POST /spins/{id}/cancel`).
 
     Денежные величины — в токенах платформы, целые. Вероятности — в миллионных долях (ppm),
     сумма по колесу ровно 1 000 000. Время — RFC 3339, UTC.
@@ -32,13 +34,11 @@ tags:
   - name: wheels
     description: Версии колеса. Версия неизменяема; меню, шансы и цены фиксируются при создании.
   - name: spins
-    description: Вращения. Резерв токенов, розыгрыш, раскрытие сида, отмена.
+    description: Вращения. Фиксация цены, подтверждение платформой с суммой оплаты, розыгрыш, раскрытие сида, отказ.
   - name: pricing
     description: Расчёт цены по меню без создания колеса (то же, что calc/price.js).
   - name: queue
     description: Очередь призов модели и состояние эфира. Источник правила допуска.
-  - name: promos
-    description: Акции, купоны и фриспины. Скидка существует только как акция.
   - name: audit
     description: История и проверка честности.
 
@@ -176,12 +176,13 @@ paths:
     post:
       tags: [spins]
       operationId: createSpin
-      summary: Начать вращение (резерв)
+      summary: Начать вращение
       description: |
         Порядок: проверка допуска (активная версия, очередь не полна, до конца эфира хватает
-        времени на худший приз) → фиксация цены, действующей 30 секунд → commit сида
-        (`server_seed_hash`) → вебхук `charge.reserve` платформе. Токены резервирует платформа;
-        до `commit` розыгрыша не происходит, и вероятности после начала вращения не меняются.
+        времени на худший приз) → проверка `shown_price` → фиксация цены → commit сида
+        (`server_seed_hash`) → уведомление `spin.requested` платформе. Сервер не ждёт ответа
+        платформы. До `commit` розыгрыша не происходит, и вероятности после начала вращения
+        не меняются. Баланс, лимиты и акции вендор не проверяет.
         `client_seed` задаёт зритель или виджет; он входит в розыгрыш и в проверку честности.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -192,7 +193,7 @@ paths:
             schema: { $ref: '#/components/schemas/SpinCreate' }
       responses:
         '201':
-          description: Вращение зарезервировано
+          description: Вращение создано и ждёт подтверждения оплаты (status requested)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Spin' }
@@ -247,14 +248,26 @@ paths:
       operationId: commitSpin
       summary: Подтвердить оплату и разыграть
       description: |
-        Вызывается платформой после успешного резерва (ответ на `charge.reserve` или отдельным
-        запросом). Сервер один раз вычисляет исход: HMAC-SHA256(server_seed, client_seed + ":" +
+        Вызывается платформой, когда она по своим правилам списала токены. `paid_amount` —
+        фактически списанная сумма (0 для фриспина); вендор записывает её без проверок, плата
+        вендора считается от неё. Сервер один раз вычисляет исход: HMAC-SHA256(server_seed, client_seed + ":" +
         nonce) → число 0..999999 отбором без смещения → пункт меню по кумулятивным ppm.
-        Затем кладёт приз в очередь модели, шлёт `charge.commit` и `spin.result`, раскрывает
-        `server_seed`. Повторный вызов с тем же Idempotency-Key возвращает тот же результат.
+        Затем кладёт приз в очередь модели, шлёт `spin.result`, раскрывает `server_seed`.
+        Повторный вызов с тем же Idempotency-Key возвращает тот же результат. Если срок
+        подтверждения (`expires_at`) прошёл — 409 `spin_expired`, розыгрыша нет, платформа
+        возвращает списанное у себя.
       parameters:
         - $ref: '#/components/parameters/SpinId'
         - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paid_amount]
+              properties:
+                paid_amount: { type: integer, minimum: 0, description: 'Сколько токенов платформа фактически списала за это вращение.' }
       responses:
         '200':
           description: Разыгранное вращение с результатом и раскрытым сидом
@@ -262,7 +275,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Spin' }
         '409':
-          description: Вращение уже отменено или истёк срок резерва
+          description: Вращение отменено (spin_not_requested) или срок подтверждения истёк (spin_expired)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -272,14 +285,22 @@ paths:
     post:
       tags: [spins]
       operationId: cancelSpin
-      summary: Отменить вращение до розыгрыша
+      summary: Отказать в вращении до розыгрыша
       description: |
-        Допустима только для статуса `reserved` (оплата не подтверждена или зритель передумал,
-        пока действовала зафиксированная цена). Сервер шлёт `charge.release`. После розыгрыша
-        отмены нет: приз либо исполняется, либо переносится решением платформы.
+        Вызывается платформой, если она не списала токены (баланс, лимиты, свои правила).
+        Допустима только для статуса `requested`. `message` — текст для зрителя на языке
+        платформы; виджет показывает его как есть (событие WS `spin.cancelled`). После
+        розыгрыша отмены нет: приз либо исполняется, либо переносится решением платформы.
       parameters:
         - $ref: '#/components/parameters/SpinId'
         - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message: { type: [string, 'null'], maxLength: 200, description: Сообщение зрителю, например «Недостаточно токенов». }
       responses:
         '200':
           description: Отменённое вращение
@@ -362,76 +383,39 @@ paths:
               schema: { $ref: '#/components/schemas/QueueItem' }
         default: { $ref: '#/components/responses/Error' }
 
-  /promos:
-    post:
-      tags: [promos]
-      operationId: createPromo
-      summary: Создать акцию, купон или пакет фриспинов
-      description: |
-        Скидка задаётся глубиной d от базовой цены и бюджетом. Ограничения сервера: цена со
-        скидкой не ниже S_min версии; шансы колеса акция не меняет. Фриспин — предельный случай
-        d = 1; плату вендора с фриспина сервер не начисляет.
-      parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PromoCreate' }
-      responses:
-        '201':
-          description: Акция создана
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Promo' }
-        '422':
-          description: Скидка опускает цену ниже S_min или бюджет некорректен
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        default: { $ref: '#/components/responses/Error' }
-
 webhooks:
-  charge.reserve:
+  spin.requested:
     post:
-      operationId: webhookChargeReserve
-      summary: Зарезервировать токены зрителя
+      operationId: webhookSpinRequested
+      summary: Зритель запросил вращение
       description: |
-        Вендор → платформа при создании вращения. Платформа отвечает 200 с `{"ok": true}`,
-        если резерв поставлен; любой другой ответ отменяет вращение. Подпись и повторы —
-        как у всех вебхуков (api/README.md).
+        Вендор → платформа сразу после `POST /spins`. Это уведомление, а не запрос денег:
+        платформа по своим правилам списывает токены и вызывает `POST /spins/{id}/commit`
+        с `paid_amount` до `expires_at`, либо `POST /spins/{id}/cancel` с сообщением.
+        Ответ 200 означает только «получено». Подпись и повторы — как у всех вебхуков.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/ChargeEvent' }
+            schema: { $ref: '#/components/schemas/SpinRequestedEvent' }
       responses:
         '200':
-          description: Резерв поставлен
-  charge.commit:
+          description: Получено
+  spin.expired:
     post:
-      operationId: webhookChargeCommit
-      summary: Списать зарезервированные токены
+      operationId: webhookSpinExpired
+      summary: Срок подтверждения истёк
+      description: |
+        Вендор → платформа, если подтверждение не пришло до `expires_at`. Розыгрыша не было.
+        Если платформа уже списала токены за это вращение, она возвращает их у себя.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/ChargeEvent' }
+            schema: { $ref: '#/components/schemas/SpinExpiredEvent' }
       responses:
         '200':
-          description: Списано
-  charge.release:
-    post:
-      operationId: webhookChargeRelease
-      summary: Снять резерв (отмена вращения)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/ChargeEvent' }
-      responses:
-        '200':
-          description: Резерв снят
+          description: Получено
   spin.result:
     post:
       operationId: webhookSpinResult
@@ -708,11 +692,11 @@ components:
 
     SpinStatus:
       type: string
-      enum: [reserved, committed, cancelled, expired]
+      enum: [requested, committed, cancelled, expired]
       description: |
-        reserved — цена зафиксирована, токены в резерве; committed — оплачено и разыграно;
-        cancelled — отменено до розыгрыша; expired — резерв истёк (фиксация цены закончилась,
-        подтверждение не пришло), токены возвращены.
+        requested — цена зафиксирована, ждём подтверждения оплаты от платформы;
+        committed — платформа подтвердила сумму, розыгрыш выполнен; cancelled — платформа
+        отказала до розыгрыша; expired — подтверждение не пришло до expires_at.
 
     SpinCreate:
       type: object
@@ -721,7 +705,6 @@ components:
         wheel_id: { type: string }
         viewer_id: { type: string, description: Непрозрачный идентификатор зрителя на платформе; персональные данные не передаются. }
         client_seed: { type: string, minLength: 8, maxLength: 128 }
-        promo_code: { type: [string, 'null'] }
         shown_price: { type: integer, description: 'Цена, которую видел зритель; если она уже не действует, сервер отвечает 409 price_changed.' }
 
     Spin:
@@ -734,9 +717,9 @@ components:
         viewer_id: { type: string }
         status: { $ref: '#/components/schemas/SpinStatus' }
         price: { type: integer, description: Базовая цена на момент вращения. }
-        paid_price: { type: integer, description: Фактически списанная цена с учётом акции; плата вендора считается от неё. }
-        promo_id: { type: [string, 'null'] }
-        reserve_expires_at: { type: string, format: date-time }
+        paid_price: { type: [integer, 'null'], description: 'Сколько платформа фактически списала (paid_amount из commit); null до подтверждения. Плата вендора считается от неё.' }
+        expires_at: { type: string, format: date-time, description: До какого момента платформа может подтвердить оплату. }
+        cancel_message: { type: [string, 'null'], description: Сообщение платформы зрителю при отказе. }
         server_seed_hash: { type: string, description: SHA-256 серверного сида; выдан до розыгрыша. }
         client_seed: { type: string }
         nonce: { type: integer, description: Счётчик вращений данного сида. }
@@ -813,39 +796,30 @@ components:
         created_at: { type: string, format: date-time }
         done_at: { type: [string, 'null'], format: date-time }
 
-    PromoCreate:
+    SpinRequestedEvent:
       type: object
-      required: [model_id, kind]
-      properties:
-        model_id: { type: string }
-        kind: { type: string, enum: [discount, coupon, freespin] }
-        discount: { type: number, exclusiveMinimum: 0, maximum: 1, description: 'Глубина d; paid = round(price × (1 − d)), но не ниже S_min. Для freespin всегда 1.' }
-        budget_spins: { type: integer, minimum: 1, description: Максимум вращений по акции. }
-        starts_at: { type: string, format: date-time }
-        ends_at: { type: string, format: date-time }
-        code: { type: [string, 'null'], description: Код купона; для kind=coupon обязателен. }
-
-    Promo:
-      allOf:
-        - $ref: '#/components/schemas/PromoCreate'
-        - type: object
-          required: [id, used_spins, active]
-          properties:
-            id: { type: string }
-            used_spins: { type: integer }
-            active: { type: boolean }
-
-    ChargeEvent:
-      type: object
-      required: [event_id, type, spin_id, model_id, viewer_id, amount, created_at]
+      required: [event_id, type, spin_id, wheel_id, model_id, viewer_id, price, server_seed_hash, expires_at, created_at]
       properties:
         event_id: { type: string, description: Уникален; платформа дедуплицирует повторы по нему. }
-        type: { type: string, enum: [charge.reserve, charge.commit, charge.release] }
+        type: { type: string, const: spin.requested }
+        spin_id: { type: string }
+        wheel_id: { type: string }
+        model_id: { type: string }
+        viewer_id: { type: string }
+        price: { type: integer, description: Зафиксированная цена вращения. Сколько списать фактически, решает платформа. }
+        server_seed_hash: { type: string, description: 'Хеш сида до оплаты; платформа может показать его зрителю.' }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    SpinExpiredEvent:
+      type: object
+      required: [event_id, type, spin_id, model_id, viewer_id, created_at]
+      properties:
+        event_id: { type: string }
+        type: { type: string, const: spin.expired }
         spin_id: { type: string }
         model_id: { type: string }
         viewer_id: { type: string }
-        amount: { type: integer, description: Токены. Для commit — paid_price. }
-        promo_id: { type: [string, 'null'] }
         created_at: { type: string, format: date-time }
 
     SpinResultEvent:

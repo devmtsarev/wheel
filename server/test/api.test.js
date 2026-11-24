@@ -45,25 +45,31 @@ test('API колеса', async (t) => {
   });
 
   let spin;
-  await t.test('вращение: резерв → charge.reserve → commit → результат и раскрытый сид', async () => {
+  await t.test('вращение: запрос → spin.requested → платформа платит → commit с суммой → результат и раскрытый сид', async () => {
     const r = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'v1', client_seed: 'client-seed-01' });
     assert.equal(r.status, 201);
     spin = r.body;
-    assert.equal(spin.status, 'reserved');
+    assert.equal(spin.status, 'requested');
     assert.equal(spin.price, 50);
+    assert.equal(spin.paid_price, null);
     assert.equal(spin.server_seed, null);
-    assert.equal(tp.events.at(-1).type, 'charge.reserve');
-    assert.equal(tp.events.at(-1).amount, 50);
+    assert.match(spin.server_seed_hash, /^[0-9a-f]{64}$/);
+    const ev = tp.events.at(-1);
+    assert.equal(ev.type, 'spin.requested');
+    assert.equal(ev.price, 50);
+    assert.equal(ev.server_seed_hash, spin.server_seed_hash);
 
-    const c = await call('POST', `/v1/spins/${spin.id}/commit`);
+    const c = await call('POST', `/v1/spins/${spin.id}/commit`, { paid_amount: 50 });
     assert.equal(c.status, 200);
     spin = c.body;
     assert.equal(spin.status, 'committed');
+    assert.equal(spin.paid_price, 50);
     assert.ok(spin.result.item_name);
     assert.ok(spin.result.roll_ppm >= 0 && spin.result.roll_ppm < 1_000_000);
     assert.match(spin.server_seed, /^[0-9a-f]{64}$/);
     const types = tp.events.map((e) => e.type);
-    assert.ok(types.includes('charge.commit') && types.includes('spin.result'));
+    assert.ok(types.includes('spin.result'));
+    assert.ok(!types.some((t) => t.startsWith('charge.')), 'вендор не просит денег');
   });
 
   await t.test('честность проверяется независимо', async () => {
@@ -80,28 +86,51 @@ test('API колеса', async (t) => {
   });
 
   await t.test('повтор commit с тем же Idempotency-Key возвращает тот же результат', async () => {
-    const r1 = await call('POST', `/v1/spins/${spin.id}/commit`, undefined, { idem: 'same-key' });
-    const r2 = await call('POST', `/v1/spins/${spin.id}/commit`, undefined, { idem: 'same-key' });
+    const r1 = await call('POST', `/v1/spins/${spin.id}/commit`, { paid_amount: 50 }, { idem: 'same-key' });
+    const r2 = await call('POST', `/v1/spins/${spin.id}/commit`, { paid_amount: 50 }, { idem: 'same-key' });
     assert.equal(r1.status, 200);
     assert.deepEqual(r1.body.result, r2.body.result);
   });
 
-  await t.test('отказ платформы в резерве — вращение не продаётся', async () => {
-    tp.setReserve(false);
-    const r = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'poor', client_seed: 'seed-poor-1' });
-    assert.equal(r.status, 502);
-    assert.equal(r.body.code, 'reserve_failed');
-    tp.setReserve(true);
+  await t.test('commit без суммы оплаты отклоняется', async () => {
+    const r = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'v3', client_seed: 'seed-v3-0001' });
+    const c = await call('POST', `/v1/spins/${r.body.id}/commit`, {});
+    assert.equal(c.status, 422);
+    assert.equal(c.body.code, 'validation_failed');
+    await call('POST', `/v1/spins/${r.body.id}/cancel`, {});
   });
 
-  await t.test('отмена до розыгрыша снимает резерв', async () => {
-    const r = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'v2', client_seed: 'seed-v2-0001' });
-    const c = await call('POST', `/v1/spins/${r.body.id}/cancel`);
+  await t.test('платформа отказывает в оплате: cancel с сообщением, розыгрыша нет', async () => {
+    const r = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'poor', client_seed: 'seed-poor-1' });
+    const c = await call('POST', `/v1/spins/${r.body.id}/cancel`, { message: 'Недостаточно токенов' });
     assert.equal(c.status, 200);
     assert.equal(c.body.status, 'cancelled');
-    assert.equal(tp.events.at(-1).type, 'charge.release');
-    const again = await call('POST', `/v1/spins/${r.body.id}/commit`);
+    assert.equal(c.body.cancel_message, 'Недостаточно токенов');
+    assert.equal(c.body.result, null);
+    const again = await call('POST', `/v1/spins/${r.body.id}/commit`, { paid_amount: 50 });
     assert.equal(again.status, 409);
+  });
+
+  await t.test('срок подтверждения истёк: commit → 409 spin_expired, платформе уходит spin.expired', async () => {
+    const r = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'slow', client_seed: 'seed-slow-1' });
+    app.store.spins.get(r.body.id).expires_at = new Date(Date.now() - 1000).toISOString();
+    const c = await call('POST', `/v1/spins/${r.body.id}/commit`, { paid_amount: 50 });
+    assert.equal(c.status, 409);
+    assert.equal(c.body.code, 'spin_expired');
+    assert.ok(tp.events.some((e) => e.type === 'spin.expired' && e.spin_id === r.body.id));
+  });
+
+  await t.test('сумму решает платформа: фриспин 0 и любая скидка принимаются без проверок', async () => {
+    for (const [viewer, paid] of [['p1', 0], ['p2', 10]]) {
+      const r = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: viewer, client_seed: `seed-${viewer}-0001` });
+      const c = await call('POST', `/v1/spins/${r.body.id}/commit`, { paid_amount: paid });
+      assert.equal(c.status, 200);
+      assert.equal(c.body.paid_price, paid);
+      assert.equal(c.body.price, 50);
+    }
+    // очередь освобождаем для следующих проверок
+    const q = (await call('GET', '/v1/models/model-1/queue')).body;
+    for (const item of q.items.filter((i) => i.status === 'pending')) await call('POST', `/v1/queue/${item.id}/complete`);
   });
 
   await t.test('допуск: очередь полна → 409 queue_full, паузу видно в public', async () => {
@@ -109,7 +138,7 @@ test('API колеса', async (t) => {
     // накручиваем очередь двумя вращениями
     for (const n of [1, 2]) {
       const r = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'q' + n, client_seed: 'seed-q-000' + n });
-      await call('POST', `/v1/spins/${r.body.id}/commit`);
+      await call('POST', `/v1/spins/${r.body.id}/commit`, { paid_amount: 50 });
     }
     const r = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'q3', client_seed: 'seed-q-0003' });
     assert.equal(r.status, 409);
@@ -124,7 +153,7 @@ test('API колеса', async (t) => {
     for (const item of q.items) await call('POST', `/v1/queue/${item.id}/complete`);
     const r = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'q4', client_seed: 'seed-q-0004' });
     assert.equal(r.status, 201);
-    await call('POST', `/v1/spins/${r.body.id}/cancel`);
+    await call('POST', `/v1/spins/${r.body.id}/cancel`, {});
   });
 
   await t.test('эфир заканчивается → 409 stream_ending', async () => {
@@ -153,31 +182,9 @@ test('API колеса', async (t) => {
     // чужое вращение не видно
     const foreign = await call('GET', `/v1/spins/${spin.id}`, undefined, { auth: token });
     assert.equal(foreign.status, 403);
-    await call('POST', `/v1/spins/${ok.body.id}/cancel`);
+    await call('POST', `/v1/spins/${ok.body.id}/cancel`, {});
   });
 
-  await t.test('акция: скидка не ниже S_min, фриспин бесплатный', async () => {
-    const deep = await call('POST', '/v1/promos', { model_id: 'model-1', kind: 'discount', discount: 0.5, budget_spins: 5, code: 'HALF' });
-    assert.equal(deep.status, 201);
-    const r1 = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'p1', client_seed: 'seed-p-0001', promo_code: 'HALF' });
-    assert.equal(r1.status, 409); // 25 < S_min 31
-    assert.equal(r1.body.code, 'promo_invalid');
-
-    await call('POST', '/v1/promos', { model_id: 'model-1', kind: 'discount', discount: 0.2, budget_spins: 5, code: 'TWENTY' });
-    const r2 = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'p2', client_seed: 'seed-p-0002', promo_code: 'TWENTY' });
-    assert.equal(r2.status, 201);
-    assert.equal(r2.body.paid_price, 40);
-    await call('POST', `/v1/spins/${r2.body.id}/cancel`);
-
-    await call('POST', '/v1/promos', { model_id: 'model-1', kind: 'freespin', budget_spins: 1, code: 'FREE' });
-    const r3 = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'p3', client_seed: 'seed-p-0003', promo_code: 'FREE' });
-    assert.equal(r3.body.paid_price, 0);
-    const c3 = await call('POST', `/v1/spins/${r3.body.id}/commit`);
-    assert.equal(c3.status, 200);
-    // бюджет исчерпан
-    const r4 = await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'p4', client_seed: 'seed-p-0004', promo_code: 'FREE' });
-    assert.equal(r4.status, 409);
-  });
 });
 
 test('распределение розыгрыша соответствует ppm (20000 бросков)', () => {

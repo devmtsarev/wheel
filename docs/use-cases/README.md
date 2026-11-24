@@ -7,14 +7,14 @@ Gaps and open questions: [gaps.md](gaps.md). Human-readable version with diagram
 
 | ID | File | Actor | Status | Gaps |
 |---|---|---|---|---|
-| UC-01 | [UC-01-spin-the-wheel.md](UC-01-spin-the-wheel.md) | viewer | tested+gap | G6 G9 G11 |
+| UC-01 | [UC-01-spin-the-wheel.md](UC-01-spin-the-wheel.md) | viewer | tested+gap | G9 G15 |
 | UC-02 | [UC-02-verify-fairness.md](UC-02-verify-fairness.md) | viewer | tested | — |
 | UC-03 | [UC-03-view-own-spins.md](UC-03-view-own-spins.md) | viewer | gap | G8 |
 | UC-04 | [UC-04-configure-wheel.md](UC-04-configure-wheel.md) | operator | tested+gap | G5 G12 |
 | UC-05 | [UC-05-pause-resume.md](UC-05-pause-resume.md) | operator | gap | G5 G7 |
 | UC-06 | [UC-06-refund-spin.md](UC-06-refund-spin.md) | operator | tested+gap | G1 G2 G4 G5 |
 | UC-07 | [UC-07-resolve-dispute.md](UC-07-resolve-dispute.md) | operator | tested+gap | G1 G4 G5 |
-| UC-08 | [UC-08-run-promotion.md](UC-08-run-promotion.md) | operator | tested+gap | G5 G11 |
+| UC-08 | [UC-08-run-promotion.md](UC-08-run-promotion.md) | operator | tested | G14 |
 | UC-09 | [UC-09-review-reports.md](UC-09-review-reports.md) | operator | prototype+gap | G5 G14 |
 | UC-10 | [UC-10-fulfil-prize.md](UC-10-fulfil-prize.md) | model | tested+gap | G1 G2 G3 |
 | UC-11 | [UC-11-connect-platform.md](UC-11-connect-platform.md) | platform | tested+spec | G5 |
@@ -26,7 +26,7 @@ Gaps and open questions: [gaps.md](gaps.md). Human-readable version with diagram
 
 - viewer: presses Spin, waits for the prize. Uses the widget only.
 - operator: platform staff. Configures wheels per `model_id`, pauses, refunds, resolves disputes, runs promotions, reads reports. Uses the Platform Control Panel (G5) or the platform's config file.
-- platform: platform backend. Decides and takes payment (balance, limits, promotions are its business), reports stream state, shows the queue to the model.
+- platform: platform backend. On `spin.requested` decides and takes payment (balance, limits, promotions are its business), then confirms with the paid amount or cancels with a message. Reports stream state, shows the queue to the model.
 - model: performs prizes on stream. Configures nothing; no interface of her own.
 - vendor: us. Owns price, admission (model capacity), draw, prize queue, audit log (`server/`, `calc/`). Never sees the viewer's balance, limits or promotions.
 

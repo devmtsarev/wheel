@@ -14,8 +14,8 @@ Post: widget shows that all three checks pass.
 
 ## Main
 1. Viewer opens spin details in the widget. [prototype: experience/shared/fairness.js]
-2. Widget requests `GET /spins/{id}/fairness`: server_seed, server_seed_hash, client_seed, nonce, content_hash, menu with ppm, formula. [tested: T:69]
-3. Widget checks: SHA-256(server_seed) = the server_seed_hash received before payment (UC-01 step 5); HMAC gives the same number; number falls in the won item's ppm interval; content_hash matches the version's menu. [tested: T:69, fair.js verify]
+2. Widget requests `GET /spins/{id}/fairness`: server_seed, server_seed_hash, client_seed, nonce, content_hash, menu with ppm, formula. [tested: T:75]
+3. Widget checks: SHA-256(server_seed) = the server_seed_hash received before payment (UC-01 step 3); HMAC gives the same number; number falls in the won item's ppm interval; content_hash matches the version's menu. [tested: T:75, fair.js verify]
 4. Widget shows "verified". [prototype]
 
 ## Alternatives

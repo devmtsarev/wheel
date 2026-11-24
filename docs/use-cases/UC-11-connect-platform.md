@@ -7,7 +7,7 @@ status: tested+spec
 gaps: [G5]
 depends: []
 ---
-Goal: integrate wallet, webhooks and widget so spins can be sold securely.
+Goal: integrate wallet, webhooks and widget so spins can be sold securely; the widget stays a drop-in script.
 Trigger: signed contract.
 Pre: none.
 Post: signed API calls work; webhooks received; widget runs on stream pages; operators can sign in to the Control Panel.
@@ -15,13 +15,14 @@ Post: signed API calls work; webhooks received; widget runs on stream pages; ope
 ## Main
 1. Vendor issues licence key `wl_…`, request-signing secret, webhook secret. [spec: api/README "Доступ и подпись"; teaching secrets in server/config.json, TODO 8]
 2. Platform signs every request: `X-Wheel-Signature = hex(HMAC-SHA256(secret, "{ts}.{METHOD}.{path}.{sha256(body)}"))`, window ±300 s. [tested: T:42]
-3. Platform runs a webhook receiver: `charge.reserve` sync ≤5 s; others retried 1s,10s,60s,5m,30m, hourly to 24 h; dedup by `event_id`. [server: webhooks.js; retries in memory]
-4. Platform embeds the widget script and issues `widget_token` per viewer. [spec+prototype: experience/embed/wheel.js]
-5. Vendor creates Control Panel accounts for the platform's operators. [gap: G5]
-6. Operator configures the first wheel (UC-04).
+3. Platform runs a webhook receiver for `spin.requested`, `spin.result`, `spin.expired`; retried 1 s, 10 s, 60 s, 5 min, 30 min, hourly to 24 h; dedup by `event_id`. No answer carries money. [server: webhooks.js; retries in memory]
+4. Platform wires its payment rules to `spin.requested`: charge, then `POST /spins/{id}/commit` {paid_amount} before `expires_at`, or `POST /spins/{id}/cancel` {message}. [tested: T:48, T:103, T:114; reference: server/mock-platform.js]
+5. Platform embeds the widget script and issues `widget_token` per viewer. [spec+prototype: experience/embed/wheel.js]
+6. Vendor creates Control Panel accounts for the platform's operators. [gap: G5]
+7. Operator configures the first wheel (UC-04).
 
 ## Alternatives
-- A1 (from step 4) strict CSP: widget uses `postMessage`; the page relays the same events from its own connection. [spec: api/README "Fallback postMessage"]
+- A1 (from step 5) strict CSP: widget uses `postMessage`; the page relays the same events from its own connection. [spec: api/README "Fallback postMessage"]
 
 ## Exceptions
 - E1 (from step 2) bad signature or stale timestamp: 401 `invalid_signature` | `stale_timestamp`. [tested: T:42 (signature)]

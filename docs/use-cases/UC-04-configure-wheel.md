@@ -23,7 +23,7 @@ Post: new active version with its own `content_hash`; previous version `retired`
 
 ## Alternatives
 - A1 (from steps 1-4) config file: platform backend calls `POST /wheels` with the same data from its own config file; panel not used. [tested: T:25]
-- A2 (from step 5) change during a live stream: new version active at once; drawn prizes stay queued. Spin still `reserved` on the old version: untested. [server]
+- A2 (from step 5) change during a live stream: new version active at once; drawn prizes stay queued. Spin still `requested` on the old version: untested. [server]
 
 ## Exceptions
 - E1 (from step 5) validator rejects: 422 with `violations[].rule` (ppm_sum|consolation|jackpot|cv|price|menu_mismatch); nothing created; operator corrects. [tested: T:35]

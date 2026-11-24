@@ -30,7 +30,7 @@ Only `pending` and `done` exist today.
 1. Prize joins the queue in order; `spin.result` appears in the stream chat. [tested: T:48]
 2. Platform shows the queue to the model on its stream screen from `GET /models/{id}/queue`. [server; the screen is the platform's]
 3. Model performs the prize on stream. [outside the system]
-4. Operator marks it done: `POST /queue/{id}/complete`; slot freed; audit `queue.done`. Who marks is open (Q1). [tested: T:121]
+4. Operator marks it done: `POST /queue/{id}/complete`; slot freed; audit `queue.done`. Who marks is open (Q1). [tested: T:150]
 
 ## Alternatives
 - A1 (from step 3) out of order: any queued item can be marked done. [server]

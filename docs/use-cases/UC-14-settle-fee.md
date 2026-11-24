@@ -13,7 +13,7 @@ Trigger: end of a settlement period.
 Pre: payment scheme agreed (uplift share or revenue share: undecided, TODO 1).
 Post: both ledgers match spin by spin; invoice = f × Σ net `paid_price`.
 
-Mirror financial ledger: the vendor's per-spin record of price, `paid_price`, promotion and reserve/commit/release/refund events with `event_id` and delivery state. Not a copy of the viewer's balance; the platform wallet is the source of truth for money.
+Mirror financial ledger: the vendor's per-spin record of price, `paid_price` reported by the platform, and requested/committed/cancelled/expired/refunded events with their time. Not a copy of the viewer's balance; the platform wallet is the source of truth for money.
 
 ## Main
 1. Vendor exports the period from the mirror ledger. [gap: no persistence, no export; G4]
@@ -23,8 +23,8 @@ Mirror financial ledger: the vendor's per-spin record of price, `paid_price`, pr
 
 ## Exceptions
 - E1 (from step 3) refund after the draw unknown to the vendor (G1). [gap]
-- E2 (from step 3) lost `charge.commit`: retries live in memory and vanish on restart; prize given, tokens possibly still on hold (G4). [gap]
-- E3 (from step 3) other differences (free spins with paid_price 0, expired holds, duplicate events): contract rule, platform wins on money, vendor log (content_hash, seeds) wins on draws and versions. [proposal]
+- E2 (from step 3) Platform charged for a spin that expired or was cancelled: the vendor recorded no payment, the platform must show a matching refund; a charge without one is the platform's to correct. [gap: G4]
+- E3 (from step 3) other differences (free spins with paid_price 0, duplicate events): contract rule, platform wins on money, vendor log (content_hash, seeds) wins on draws and versions. [proposal]
 
 ## Acceptance
 ```gherkin
@@ -38,8 +38,9 @@ Scenario: Period settles
   And the invoice equals f times the sum of paid_price of the 990 unrefunded spins
 
 @UC-14 @E2 @gap
-Scenario: Webhook retries survive a restart
-  Given the server restarts while a charge.commit is being retried
-  When it starts again
-  Then the retry continues from persistent storage
+Scenario: E2. Expired spin with a charge on the platform side
+  Given a spin expired without confirmation
+  And the platform's export shows a charge for it and no refund
+  When the ledgers are matched
+  Then the spin is flagged for the platform to refund
 ```

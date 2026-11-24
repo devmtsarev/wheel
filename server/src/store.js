@@ -11,15 +11,13 @@ function createStore() {
   const queues = new Map();           // model_id → [queue item]
   const queueItems = new Map();       // item_id → {model_id, item}
   const streams = new Map();          // model_id → stream state
-  const promos = new Map();           // promo_id → promo
-  const promosByCode = new Map();     // code → promo_id
   const idem = new Map();             // `${platform}:${key}` → {at, status, body}
   const events = [];                  // аудит-журнал
 
   const audit = (type, data) => { events.push({ at: new Date().toISOString(), type, ...data }); };
 
   return {
-    id, wheels, activeByModel, spins, queues, queueItems, streams, promos, promosByCode, events, audit,
+    id, wheels, activeByModel, spins, queues, queueItems, streams, events, audit,
 
     queueOf(modelId) {
       if (!queues.has(modelId)) queues.set(modelId, []);

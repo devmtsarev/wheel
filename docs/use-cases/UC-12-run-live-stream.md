@@ -13,10 +13,10 @@ Pre: the model's wheel is active.
 Post: every prize sold fits into the stream's remaining time.
 
 ## Main
-1. Platform sends `PUT /models/{id}/stream` {live, ends_at, queue_limit=5, buffer_s=60}. [tested: T:130]
-2. Spin admitted only if queue < queue_limit and time left ≥ queued durations + longest prize + buffer_s. [tested: T:107, T:130]
+1. Platform sends `PUT /models/{id}/stream` {live, ends_at, queue_limit=5, buffer_s=60}. [tested: T:159]
+2. Spin admitted only if queue < queue_limit and time left ≥ queued durations + longest prize + buffer_s. [tested: T:136, T:159]
 3. If dynamic pricing is on: price steps up at queue fill ≥ 0.6, down at ≤ 0.2, at most every 300 s; chances never change. [server: admission.js dynamicPrice; off by default]
-4. Near the planned end sales stop with `stream_ending`. [tested: T:130]
+4. Near the planned end sales stop with `stream_ending`. [tested: T:159]
 5. At the end the platform sends live=false. [spec]
 
 ## Alternatives
