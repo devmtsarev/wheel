@@ -7,7 +7,7 @@ Gaps and open questions: [gaps.md](gaps.md). Human-readable version with diagram
 
 | ID | File | Actor | Status | Gaps |
 |---|---|---|---|---|
-| UC-01 | [UC-01-spin-the-wheel.md](UC-01-spin-the-wheel.md) | viewer | tested+gap | G9 G15 |
+| UC-01 | [UC-01-spin-the-wheel.md](UC-01-spin-the-wheel.md) | viewer | tested+gap | G9 G15 G16 |
 | UC-02 | [UC-02-verify-fairness.md](UC-02-verify-fairness.md) | viewer | tested | — |
 | UC-03 | [UC-03-view-own-spins.md](UC-03-view-own-spins.md) | viewer | gap | G8 |
 | UC-04 | [UC-04-configure-wheel.md](UC-04-configure-wheel.md) | operator | tested+gap | G5 G12 |

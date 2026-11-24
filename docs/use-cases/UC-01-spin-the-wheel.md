@@ -4,7 +4,7 @@ title: Spin the wheel
 actor: viewer
 supporting: [platform, vendor]
 status: tested+gap
-gaps: [G9, G15]
+gaps: [G9, G15, G16]
 depends: [UC-11, UC-12]
 ---
 Goal: pay for one spin and receive a fairly drawn prize.
@@ -26,7 +26,7 @@ stateDiagram-v2
 ## Main
 1. Widget shows the wheel: prizes, chances, spin price, and whether spins are available now. [tested: GET /wheels/{id}/public, T:170]
 2. Viewer presses "Spin"; widget sends the spin request with its viewer token. [tested: POST /spins, T:48, T:170]
-3. Vendor checks the model can take one more prize and the price has not changed, locks the price, commits to a draw seed and returns its hash; widget shows "waiting for payment". [tested: admission.js, T:48]
+3. Vendor checks the model can take one more prize and the price has not changed, locks the price, commits to a draw seed and returns its hash; widget shows "waiting for payment". [tested: admission.js, T:48 | gap: spins awaiting payment are not counted towards capacity, G16]
 4. Vendor notifies the platform: viewer X requested a spin at price P. It does not wait for an answer. [tested: webhook spin.requested, T:48]
 5. Platform applies its rules (balance, limits, promotions), charges its wallet and confirms with the amount actually paid. [tested: POST /spins/{id}/commit {paid_amount}, T:48]
 6. Vendor draws once, records the paid amount, puts the prize in the model's queue and reports the result to the platform. [tested: fair.js, T:48, T:75]
