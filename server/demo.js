@@ -57,13 +57,13 @@ async function main() {
   ws.on('message', (d) => console.log(`   [ws] ${d}`));
   await new Promise((r) => ws.on('open', r));
 
-  console.log('3. Зритель крутит (резерв → платформа подтверждает → розыгрыш)…');
+  console.log('3. Зритель крутит (запрос → платформа списывает и подтверждает сумму → розыгрыш)…');
   const spin = (await call('POST', '/v1/spins', { wheel_id: wheel.id, viewer_id: 'viewer-demo', client_seed: 'demo-client-seed' })).body;
   console.log(`   spin ${spin.id}: ${spin.status}, цена ${spin.price}, commit сида ${spin.server_seed_hash.slice(0, 16)}…`);
-  await new Promise((r) => setTimeout(r, 600)); // мок платформы сам вызывает commit
+  await new Promise((r) => setTimeout(r, 600)); // мок платформы сам списывает и вызывает commit
 
   const done = (await call('GET', `/v1/spins/${spin.id}`)).body;
-  console.log(`   результат: «${done.result.item_name}» (${done.result.item_price} ток.), roll ${done.result.roll_ppm}`);
+  console.log(`   результат: «${done.result.item_name}» (${done.result.item_price} ток.), оплачено ${done.paid_price}, roll ${done.result.roll_ppm}`);
 
   console.log('4. Независимая проверка честности…');
   const f = (await call('GET', `/v1/spins/${spin.id}/fairness`)).body;

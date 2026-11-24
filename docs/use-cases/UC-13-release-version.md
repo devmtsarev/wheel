@@ -13,7 +13,7 @@ Pre: model tests pass.
 Post: new versions active; old spins keep their version, proof and refund amount.
 
 ## Main
-1. Change the formula in `calc/model.js` and the test with document numbers; rebuild calculator; update docs. [tested: calc/model.test.js; CI does not run server tests, TODO 8]
+1. Change the formula in `calc/model.js` and the test with document numbers; rebuild calculator; update docs. [tested: calc/model.test.js, server tests in CI]
 2. Deploy the server; operators republish wheels (UC-04), each gets a new `content_hash`. [tested: T:25]
 3. Old spins keep their `content_hash`; fairness checks and refunds use original data. [server: Spin.content_hash; prototype keeps a menu snapshot per spin]
 
@@ -25,13 +25,13 @@ Post: new versions active; old spins keep their version, proof and refund amount
 Feature: UC-13 Release a new wheel version
 
 @UC-13 @main @server
-Scenario: Old spins keep their version
+Scenario: Main. Old spins keep their version
   Given a committed spin on version A
   When version B becomes active
   Then the spin's fairness data still verifies against version A
 
 @UC-13 @A1 @gap
-Scenario: Stable A/B assignment
+Scenario: A1. Stable A/B assignment
   Given versions A and B are active for one model with a 50/50 split
   When 1000 different viewers open the wheel
   Then each viewer always sees the same version
