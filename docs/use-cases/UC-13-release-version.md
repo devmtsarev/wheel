@@ -25,13 +25,13 @@ Post: new versions active; old spins keep their version, proof and refund amount
 Feature: UC-13 Release a new wheel version
 
 @UC-13 @main @server
-Scenario: Old spins keep their version
+Scenario: Main. Old spins keep their version
   Given a committed spin on version A
   When version B becomes active
   Then the spin's fairness data still verifies against version A
 
 @UC-13 @A1 @gap
-Scenario: Stable A/B assignment
+Scenario: A1. Stable A/B assignment
   Given versions A and B are active for one model with a 50/50 split
   When 1000 different viewers open the wheel
   Then each viewer always sees the same version

@@ -28,7 +28,7 @@ Rule: a drawn spin is never undone. A refund is a new event on top of it; histor
 - A2 (from step 1) Refund started in the Control Panel: the panel asks the platform to refund (webhook `spin.refund_requested`); continue at step 2. [gap: G1, G5]
 
 ## Exceptions
-- E1 (from step 1) already refunded: second refund refused, nothing credited. [prototype: store.test.mjs "refund uses original charge and cannot happen twice"]
+- E1 (from step 1) Already refunded: second refund refused, nothing credited. [prototype: store.test.mjs "refund uses original charge and cannot happen twice"]
 - E2 (from step 3) Platform refunds but never reports it: prize stays `pending`, fee charged as if nothing happened; caught by reconciliation (UC-14). [gap: G1, G4]
 
 ## Acceptance
@@ -36,7 +36,7 @@ Rule: a drawn spin is never undone. A refund is a new event on top of it; histor
 Feature: UC-06 Refund a spin
 
 @UC-06 @main @gap
-Scenario: Refund after the draw at the original price
+Scenario: Main. Refund after the draw at the original price
   Given a committed spin paid 40 tokens at a price that has since changed to 55
   When the platform credits 40 tokens and reports the refund with reason "model refused"
   Then the prize status becomes rejected
@@ -46,11 +46,23 @@ Scenario: Refund after the draw at the original price
 Scenario: A1. Before the draw
   Given a requested spin
   When the platform cancels it
-  Then no result is drawn and no refund is needed
+  Then no result is drawn and no refund is recorded
+
+@UC-06 @A2 @gap
+Scenario: A2. Refund started in the Control Panel
+  Given a committed spin
+  When the operator presses "Refund" in the Control Panel with a reason
+  Then the platform receives spin.refund_requested with the paid amount and the reason
 
 @UC-06 @E1 @gap
-Scenario: Refund only once
+Scenario: E1. Refund only once
   Given a refunded spin
-  When the operator refunds it again
-  Then the request is refused and nothing is credited
+  When the platform reports a refund for it again
+  Then the request is refused and nothing changes
+
+@UC-06 @E2 @gap
+Scenario: E2. Refund not reported
+  Given the platform refunded a committed spin but did not report it
+  When the period is reconciled
+  Then the spin is flagged as refunded on the platform but paid at the vendor
 ```

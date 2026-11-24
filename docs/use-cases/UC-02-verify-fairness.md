@@ -19,24 +19,30 @@ Post: widget shows that all three checks pass.
 4. Widget shows "verified". [prototype]
 
 ## Alternatives
-- A1 (from step 1) independent check: viewer copies the data and recomputes with any HMAC tool. [spec]
+- A1 (from step 1) Independent check: viewer copies the data and recomputes with any HMAC-SHA256 tool. [server: fairness response includes the formula; fair.js verify]
 
 ## Exceptions
-- E1 (from step 3) a check fails: widget names the failed check and offers support with the spin id (UC-07). [gap]
+- E1 (from step 3) A check fails: widget names the failed check and offers support with the spin id (UC-07). [gap]
 
 ## Acceptance
 ```gherkin
 Feature: UC-02 Verify a spin's fairness
 
 @UC-02 @main @tested
-Scenario: Fairness verifies
+Scenario: Main. Fairness verifies
   Given a committed spin
-  When its fairness data is requested
+  When the widget requests its fairness data
   Then SHA-256 of server_seed equals the hash returned before payment
   And the recomputed number falls in the interval of the won item
 
+@UC-02 @A1 @server
+Scenario: A1. Independent check
+  Given the fairness data of a committed spin and the published formula
+  When the viewer recomputes the number with any HMAC-SHA256 tool
+  Then the number equals roll_ppm and falls in the interval of the won item
+
 @UC-02 @E1 @gap
-Scenario: A check fails
+Scenario: E1. A check fails
   Given fairness data that does not verify
   When the widget runs the checks
   Then the widget names the failed check

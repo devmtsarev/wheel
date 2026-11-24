@@ -22,24 +22,38 @@ Post: signed API calls work; webhooks received; widget runs on stream pages; ope
 7. Operator configures the first wheel (UC-04).
 
 ## Alternatives
-- A1 (from step 5) strict CSP: widget uses `postMessage`; the page relays the same events from its own connection. [spec: api/README "Fallback postMessage"]
+- A1 (from step 5) Strict CSP: widget uses `postMessage`; the page relays the same events from its own connection. [spec: api/README "Fallback postMessage"]
 
 ## Exceptions
-- E1 (from step 2) bad signature or stale timestamp: 401 `invalid_signature` | `stale_timestamp`. [tested: T:42 (signature)]
-- E2 any: over 20 rps read / 5 rps write → 429 with `Retry-After`. [spec: not implemented, TODO 4]
+- E1 (from step 2) Bad signature or stale timestamp: 401 `invalid_signature` | `stale_timestamp`. [tested: T:42 (signature)]
+- E2 (any step) Too many requests: over 20 rps read / 5 rps write → 429 with `Retry-After`. [spec: not implemented, TODO 4]
 
 ## Acceptance
 ```gherkin
 Feature: UC-11 Connect a platform
 
+@UC-11 @main @tested
+Scenario: Main. Platform connected
+  Given the platform has a licence key and signing secrets
+  When it sends a signed request
+  Then the request is accepted
+  When a spin is requested
+  Then the platform receives spin.requested and can confirm it with the paid amount
+
+@UC-11 @A1 @gap
+Scenario: A1. Strict content security policy
+  Given the stream page forbids the widget's own connection
+  When a spin result is produced
+  Then the page relays the same event to the widget by postMessage
+
 @UC-11 @E1 @tested
-Scenario: Unsigned request rejected
+Scenario: E1. Unsigned request rejected
   Given a request without X-Wheel-Signature
   When it reaches the API
   Then it is rejected and nothing is executed
 
 @UC-11 @E2 @gap
-Scenario: Rate limit
+Scenario: E2. Rate limit
   Given the platform sends 12 write requests within one second
   Then the requests above the limit get 429 with Retry-After
 ```
