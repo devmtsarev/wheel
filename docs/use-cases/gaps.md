@@ -11,14 +11,14 @@ Priority: G1–G5 before the pilot. Proposals are drafts, not decisions.
 | G3 | Prizes stay pending after stream end | 10 12 | On `live=false`: pending → deferred with expiry; on expiry → expired + refund. Period in contract | server, contract |
 | G4 | No mirror ledger, reconciliation, readable audit | 06 07 14 | Persistent storage for spins, financial events, audit, webhook retry queue; `GET /audit`, `GET /reports/settlement?from&to` | server, openapi |
 | G5 | No Platform Control Panel | 04 05 06 07 08 09 11 | Vendor-hosted UI per `model_id`: wheel config with price preview, pause, refund, reject/defer, promos, reports, operator accounts and roles. Screens: `experience/operator`, `experience/manage` | new component |
-| G6 | "Not enough tokens" = generic failure | 01 | `charge.reserve` reply carries `reason`; API returns `insufficient_funds`; add `reserve_failed`, `insufficient_funds` to stable codes | openapi, api/README, server |
+| G6 | Platform's decline reason not shown to the viewer | 01 | `charge.reserve` reply may carry a viewer-facing `message`; API passes it through; widget shows it or a neutral text. Add `reserve_failed` to stable error codes | openapi, api/README, server, widget |
 | G7 | No manual pause | 05 | `paused` flag in `StreamState` or `POST /models/{id}/pause|resume`; admission reason `paused` | openapi, admission.js |
 | G8 | Viewer can't see prize status or history | 03 | Prize status in `GET /spins/{id}`; own spins via `widget_token`, paged | openapi, server |
-| G9 | 30 s price validity not honoured | 01 | `shown_price` mandatory; accept any price valid in the last 30 s | server or api/README |
+| G9 | Displayed price vs locked price undefined | 01 | Decide: price is locked at the click (re-confirm if changed, current behaviour) or honoured for N s after display. Then make `shown_price` mandatory and fix api/README "30 s" | api/README, server |
 | G10 | No A/B test | 13 | Multiple active versions with weights; group = hash(`viewer_id`); `group` in `Spin`; control group; spending export | openapi, server, contract |
-| G11 | Promo code not bound to viewer | 08 | Optional `viewer_id` and per-viewer limit in `PromoCreate` | openapi, server |
+| G11 | Vendor validates promotions instead of the platform | 01 08 | Platform sends `paid_amount` with the payment confirmation; vendor records it without checks; remove promo-code and S_min checks from the spin flow. UC-08 to be reworked accordingly | openapi, server |
 | G12 | Wheel settings lag product decisions | 04 | k > 1, empty sector z, chances from prices without weights (TODO 4) | openapi, server |
-| G13 | No spending limits or jurisdiction flag | 01 | Limits + jurisdiction flag in admission (TODO 4, 6) | server, compliance |
+| G13 | ~~Spending limits, jurisdiction~~ | — | Out of scope: the platform enforces them before confirming payment (UC-01 E2) | — |
 | G14 | No report API | 09 | Pagination for `GET /spins`; aggregates endpoint | openapi, server |
 
 ## Open questions

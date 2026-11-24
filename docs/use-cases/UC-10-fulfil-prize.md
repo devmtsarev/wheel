@@ -33,13 +33,13 @@ Only `pending` and `done` exist today.
 4. Operator marks it done: `POST /queue/{id}/complete`; slot freed; audit `queue.done`. Who marks is open (Q1). [tested: T:121]
 
 ## Alternatives
-- A1 @3 out of order: any queued item can be marked done. [server]
-- A2 @3 deferred to the next stream: with the viewer's consent the prize becomes `deferred` with an expiry and returns to `pending` when the model is next live. [gap: G2]
+- A1 (from step 3) out of order: any queued item can be marked done. [server]
+- A2 (from step 3) deferred to the next stream: with the viewer's consent the prize becomes `deferred` with an expiry and returns to `pending` when the model is next live. [gap: G2]
 
 ## Exceptions
-- E1 @3 model refuses (viewer left, abusive, item removed): operator rejects with a reason → `rejected` + refund (UC-06). [gap: G1, G2; prototype refunds on reject]
-- E2 @3 stream ends early: every `pending` prize becomes `deferred` with an expiry; on expiry → `expired` + refund. Today prizes stay `pending` forever and occupy the queue. [gap: G3]
-- E3 @4 viewer disputes "done": UC-07. [gap]
+- E1 (from step 3) model refuses (viewer left, abusive, item removed): operator rejects with a reason → `rejected` + refund (UC-06). [gap: G1, G2; prototype refunds on reject]
+- E2 (from step 3) stream ends early: every `pending` prize becomes `deferred` with an expiry; on expiry → `expired` + refund. Today prizes stay `pending` forever and occupy the queue. [gap: G3]
+- E3 (from step 4) viewer disputes "done": UC-07. [gap]
 
 Admission (UC-12) prevents E2 at the planned end only if `duration_s` is accurate; real durations not yet received from the platform.
 

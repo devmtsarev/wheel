@@ -21,10 +21,10 @@ Post: signed API calls work; webhooks received; widget runs on stream pages; ope
 6. Operator configures the first wheel (UC-04).
 
 ## Alternatives
-- A1 @4 strict CSP: widget uses `postMessage`; the page relays the same events from its own connection. [spec: api/README "Fallback postMessage"]
+- A1 (from step 4) strict CSP: widget uses `postMessage`; the page relays the same events from its own connection. [spec: api/README "Fallback postMessage"]
 
 ## Exceptions
-- E1 @2 bad signature or stale timestamp: 401 `invalid_signature` | `stale_timestamp`. [tested: T:42 (signature)]
+- E1 (from step 2) bad signature or stale timestamp: 401 `invalid_signature` | `stale_timestamp`. [tested: T:42 (signature)]
 - E2 any: over 20 rps read / 5 rps write → 429 with `Retry-After`. [spec: not implemented, TODO 4]
 
 ## Acceptance

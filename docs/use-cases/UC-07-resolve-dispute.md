@@ -20,11 +20,11 @@ Post: viewer gets an answer backed by data; decision in the audit log, visible t
 4. Decision written to the audit log with operator id and reason. [gap: audit in memory, not readable via API; G4]
 
 ## Alternatives
-- A1 @2 "prize not performed": check queue status and `done_at`; if pending or disputed, defer (UC-10 A2) or refund (UC-06). [server: status | gap: defer, refund]
-- A2 @2 "charged but no spin": spin `cancelled|expired` must have a matching `charge.release`; duplicates excluded by `event_id` dedup on the platform. [tested: T:97 | spec: dedup]
+- A1 (from step 2) "prize not performed": check queue status and `done_at`; if pending or disputed, defer (UC-10 A2) or refund (UC-06). [server: status | gap: defer, refund]
+- A2 (from step 2) "charged but no spin": spin `cancelled|expired` must have a matching `charge.release`; duplicates excluded by `event_id` dedup on the platform. [tested: T:97 | spec: dedup]
 
 ## Exceptions
-- E1 @2 a fairness check fails: escalate to the vendor with spin id; refund (UC-06) while the vendor investigates. [gap]
+- E1 (from step 2) a fairness check fails: escalate to the vendor with spin id; refund (UC-06) while the vendor investigates. [gap]
 
 ## Acceptance
 ```gherkin

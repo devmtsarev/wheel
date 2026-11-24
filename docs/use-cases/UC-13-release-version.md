@@ -18,7 +18,7 @@ Post: new versions active; old spins keep their version, proof and refund amount
 3. Old spins keep their `content_hash`; fairness checks and refunds use original data. [server: Spin.content_hash; prototype keeps a menu snapshot per spin]
 
 ## Alternatives
-- A1 @2 A/B test: two versions active for one model; viewer group by hash of `viewer_id`; control group sees no wheel; platform exports menu spending per group. [gap: one active version per model, no group field, no export; G10, TODO 7]
+- A1 (from step 2) A/B test: two versions active for one model; viewer group by hash of `viewer_id`; control group sees no wheel; platform exports menu spending per group. [gap: one active version per model, no group field, no export; G10, TODO 7]
 
 ## Acceptance
 ```gherkin

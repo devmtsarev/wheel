@@ -18,7 +18,7 @@ Post: paged list of the viewer's spins with spin status and prize status.
 3. Each row shows spin status and prize status (pending|done|deferred|rejected|expired) and refunded amount. [gap: API exposes spin status only; G8]
 
 ## Exceptions
-- E1 @2 token expired: widget gets a new `widget_token` from the platform and retries. [spec]
+- E1 (from step 2) token expired: widget gets a new `widget_token` from the platform and retries. [spec]
 
 ## Acceptance
 ```gherkin

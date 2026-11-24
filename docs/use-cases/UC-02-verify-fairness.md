@@ -19,10 +19,10 @@ Post: widget shows that all three checks pass.
 4. Widget shows "verified". [prototype]
 
 ## Alternatives
-- A1 @1 independent check: viewer copies the data and recomputes with any HMAC tool. [spec]
+- A1 (from step 1) independent check: viewer copies the data and recomputes with any HMAC tool. [spec]
 
 ## Exceptions
-- E1 @3 a check fails: widget names the failed check and offers support with the spin id (UC-07). [gap]
+- E1 (from step 3) a check fails: widget names the failed check and offers support with the spin id (UC-07). [gap]
 
 ## Acceptance
 ```gherkin

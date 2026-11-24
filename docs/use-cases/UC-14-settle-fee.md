@@ -22,9 +22,9 @@ Mirror financial ledger: the vendor's per-spin record of price, `paid_price`, pr
 4. On full match, invoice f × Σ net `paid_price` (f = 5%, provisional). [spec: docs/model.md]
 
 ## Exceptions
-- E1 @3 refund after the draw unknown to the vendor (G1). [gap]
-- E2 @3 lost `charge.commit`: retries live in memory and vanish on restart; prize given, tokens possibly still on hold (G4). [gap]
-- E3 @3 other differences (free spins with paid_price 0, expired holds, duplicate events): contract rule, platform wins on money, vendor log (content_hash, seeds) wins on draws and versions. [proposal]
+- E1 (from step 3) refund after the draw unknown to the vendor (G1). [gap]
+- E2 (from step 3) lost `charge.commit`: retries live in memory and vanish on restart; prize given, tokens possibly still on hold (G4). [gap]
+- E3 (from step 3) other differences (free spins with paid_price 0, expired holds, duplicate events): contract rule, platform wins on money, vendor log (content_hash, seeds) wins on draws and versions. [proposal]
 
 ## Acceptance
 ```gherkin

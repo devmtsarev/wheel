@@ -19,7 +19,7 @@ Post: new spins refused with reason `paused`; queue kept; resume restores sales.
 4. Operator presses "Resume"; widgets get WS `wheel.resumed`. [gap]
 
 ## Alternatives
-- A1 @1 workaround today: `PATCH /wheels/{id}` status retired, then active; viewers see `wheel_inactive`. [server]
+- A1 (from step 1) workaround today: `PATCH /wheels/{id}` status retired, then active; viewers see `wheel_inactive`. [server]
 
 ## Acceptance
 ```gherkin

@@ -22,10 +22,10 @@ Rule: a drawn spin is never undone. A refund is a new event on top of it; histor
 4. Mirror ledger records the refund; reports and fee base exclude it. [gap: G4; prototype keeps refunds in reports]
 
 ## Alternatives
-- A1 @2 before the draw: spin still `reserved` → `POST /spins/{id}/cancel` → `charge.release`. [tested: T:97]
+- A1 (from step 2) before the draw: spin still `reserved` → `POST /spins/{id}/cancel` → `charge.release`. [tested: T:97]
 
 ## Exceptions
-- E1 @1 already refunded: second refund refused, nothing credited. [prototype: store.test.mjs "refund uses original charge and cannot happen twice"]
+- E1 (from step 1) already refunded: second refund refused, nothing credited. [prototype: store.test.mjs "refund uses original charge and cannot happen twice"]
 - E2 platform refunds in its own wallet bypassing the vendor: prize stays `pending`, fee charged as if nothing happened (G1, G4). [gap]
 
 ## Acceptance

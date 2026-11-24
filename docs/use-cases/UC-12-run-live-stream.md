@@ -20,7 +20,7 @@ Post: every prize sold fits into the stream's remaining time.
 5. At the end the platform sends live=false. [spec]
 
 ## Alternatives
-- A1 @4 stream extended: platform sends a later `ends_at`; admission opens again. [spec]
+- A1 (from step 4) stream extended: platform sends a later `ends_at`; admission opens again. [spec]
 
 ## Exceptions
 - E1 any stream ends early: sales stop; pending prizes → UC-10 E2. [gap: G3]

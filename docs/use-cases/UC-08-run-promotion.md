@@ -5,6 +5,7 @@ actor: operator
 supporting: [vendor, viewer]
 status: tested+gap
 gaps: [G5, G11]
+note: to be reworked per G11 (promotions are the platform's decision)
 depends: [UC-04]
 ---
 Goal: offer a discount, coupon or free spin without dropping below the safe price S_min.
@@ -19,11 +20,11 @@ Post: promotion with code, depth d, budget in spins and time window; viewers use
 4. Viewers spin with the code until budget or window runs out. [tested: T:159]
 
 ## Alternatives
-- A1 @1 compensation free spin: budget 1 for one viewer after a dispute. [tested: T:159; code not bound to viewer, G11]
+- A1 (from step 1) compensation free spin: budget 1 for one viewer after a dispute. [tested: T:159; code not bound to viewer, G11]
 
 ## Exceptions
-- E1 @4 too deep: discounted price below S_min → spin refused, 409 `promo_invalid` (UC-01 E3). [tested: T:159]
-- E2 @4 code leaked: anyone with the code can exhaust the budget (G11). [gap]
+- E1 (from step 4) too deep: discounted price below S_min → spin refused, 409 `promo_invalid`. [tested: T:159]
+- E2 (from step 4) code leaked: anyone with the code can exhaust the budget (G11). [gap]
 
 ## Acceptance
 ```gherkin

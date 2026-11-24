@@ -19,7 +19,7 @@ Post: dashboard and CSV export that match the settlement report (UC-14).
 4. Operator exports CSV. [prototype]
 
 ## Exceptions
-- E1 @2 large period: `GET /spins` returns one unpaged list, no aggregates (G14). [gap]
+- E1 (from step 2) large period: `GET /spins` returns one unpaged list, no aggregates (G14). [gap]
 
 ## Acceptance
 ```gherkin
