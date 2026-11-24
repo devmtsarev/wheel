@@ -12,6 +12,7 @@
 | Посмотреть, как выглядит продукт | [демо](https://devmtsarev.github.io/wheel/demo/): зритель, оператор, управление |
 | Узнать, как платформа подключается к колесу | [api/README.md](api/README.md) и [openapi.yaml](api/openapi.yaml) |
 | Запустить сервер и пройти полный цикл вращения | `cd server && npm ci && npm run demo` |
+| Узнать, как продукт должен вести себя в каждом сценарии (use cases, критерии приёмки) | [docs/use-cases/](docs/use-cases/README.md) |
 | Узнать, что на очереди | [TODO.md](TODO.md) |
 
 ## Папки
