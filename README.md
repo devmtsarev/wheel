@@ -34,13 +34,19 @@
 
 ## Проверка
 
+То же запускает CI: [`tests.yml`](.github/workflows/tests.yml) и [`return-control.yml`](.github/workflows/return-control.yml).
+
 ```sh
-# модель цены и прототип интерфейсов (то же запускает CI)
-node --test calc/model.test.js experience/shared/store.test.mjs experience/embed/wheel.test.mjs experience/shared/variance.test.mjs
+# модель цены, страница калькулятора и прототип интерфейсов
+node --test calc/model.test.js calc/page.test.js experience/shared/store.test.mjs experience/embed/wheel.test.mjs experience/shared/variance.test.mjs experience/shared/host-theme.test.mjs experience/demos/supply-demand/data.test.mjs
 node experience/scripts/audit-variance.mjs
 
 # сервер
 cd server && npm ci && npm test
+
+# эксперимент return-control (Python)
+pip install -r experiments/return-control/requirements.txt
+python -m unittest discover -s experiments/return-control -p 'test_*.py'
 ```
 
 Прототип интерфейсов запускается локально: `python3 -m http.server 8774 --bind 127.0.0.1` из корня репозитория, затем `http://127.0.0.1:8774/experience/`. Подробности, сценарии и скриншоты — в [experience/README.md](experience/README.md) и [experience/CHANGES.md](experience/CHANGES.md).
