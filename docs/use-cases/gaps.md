@@ -1,6 +1,6 @@
 # Gaps and open questions
 
-Priority: G1–G5 and G15 before the pilot. Proposals are drafts, not decisions.
+Priority: G1–G5, G15 and G16 before the pilot. Proposals are drafts, not decisions.
 
 ## Gaps
 
@@ -21,6 +21,7 @@ Priority: G1–G5 and G15 before the pilot. Proposals are drafts, not decisions.
 | G13 | ~~Spending limits, jurisdiction~~ | — | Out of scope: the platform enforces them before confirming payment (UC-01 E2) | — |
 | G14 | No report API | 09 | Pagination for `GET /spins`; aggregates endpoint | openapi, server |
 | G15 | Widget spin requests are not idempotent | 01 | Accept `Idempotency-Key` on `POST /spins` from the widget, scoped to `viewer_id` | server, api/README |
+| G16 | Spins awaiting payment don't reserve model capacity | 01 12 | Admission counts `requested` spins (their worst-case duration) towards queue limit and time; commit beyond capacity is still accepted, because the platform already charged | server (admission.js) |
 
 ## Open questions
 

@@ -14,7 +14,7 @@ Post: dashboard and CSV export that match the settlement report (UC-14).
 
 ## Main
 1. Operator selects period and model in the panel. [prototype: experience/manage/]
-2. Panel shows gross, refunds, net, prize frequency vs configured chances, value win rate, jackpots. [prototype]
+2. Panel shows spins, total at spin price, total actually paid (as reported by the platform), discounts as the difference, refunds, net paid, prize frequency vs configured chances, value win rate, jackpots. [prototype: totals at price only]
 3. Panel shows the vendor fee and, after the pilot, uplift vs a control group. [gap]
 4. Operator exports CSV. [prototype]
 
@@ -29,6 +29,7 @@ Feature: UC-09 Review wheel reports
 Scenario: Period report
   Given 120 spins in November, 3 of them refunded
   When the operator opens the November report
-  Then gross, refunds and net are shown and net equals gross minus refunds
+  Then totals at price and paid are shown
+  And net paid equals paid minus refunds
   And the vendor fee equals f times the net paid price
 ```

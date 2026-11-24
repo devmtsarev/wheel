@@ -24,7 +24,7 @@ Rule: a drawn spin is never undone. A refund is a new event on top of it; histor
 4. Mirror ledger records the refund; reports and fee base exclude it. [gap: G4; prototype keeps refunds in reports]
 
 ## Alternatives
-- A1 (from step 1) Before the draw: spin still `requested`; the platform does not charge (or refunds itself) and cancels it. Nothing to record. [tested: T:103]
+- A1 (from step 1) Before the draw: spin still `requested`; the platform declines and cancels it (UC-01 E2), refunding on its side if it had already charged. Nothing for the vendor to record. [tested: T:103]
 - A2 (from step 1) Refund started in the Control Panel: the panel asks the platform to refund (webhook `spin.refund_requested`); continue at step 2. [gap: G1, G5]
 
 ## Exceptions

@@ -13,7 +13,7 @@ Pre: model tests pass.
 Post: new versions active; old spins keep their version, proof and refund amount.
 
 ## Main
-1. Change the formula in `calc/model.js` and the test with document numbers; rebuild calculator; update docs. [tested: calc/model.test.js; CI does not run server tests, TODO 8]
+1. Change the formula in `calc/model.js` and the test with document numbers; rebuild calculator; update docs. [tested: calc/model.test.js, server tests in CI]
 2. Deploy the server; operators republish wheels (UC-04), each gets a new `content_hash`. [tested: T:25]
 3. Old spins keep their `content_hash`; fairness checks and refunds use original data. [server: Spin.content_hash; prototype keeps a menu snapshot per spin]
 

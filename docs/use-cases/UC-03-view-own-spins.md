@@ -15,7 +15,7 @@ Post: paged list of the viewer's spins with spin status and prize status.
 ## Main
 1. Viewer opens history in the widget. [prototype: last 5 spins, "queued/done/refunded"]
 2. Widget requests the viewer's own spins with `widget_token`, paged. [gap: `GET /spins` needs the platform key; `next_cursor` always null; G8]
-3. Each row shows spin status and prize status (pending|done|deferred|rejected|expired) and refunded amount. [gap: API exposes spin status only; G8]
+3. Each row shows the spin status (requested = waiting for payment | committed | cancelled with the platform's message | expired = payment not confirmed), the paid amount, the prize status (pending|done|deferred|rejected|expired) and any refunded amount. [gap: API exposes spin status, paid amount and cancel message, not prize status; G8]
 
 ## Exceptions
 - E1 (from step 2) token expired: widget gets a new `widget_token` from the platform and retries. [spec]
@@ -30,6 +30,12 @@ Scenario: Own history with prize status
   When the viewer opens history
   Then three rows are shown, newest first
   And the refunded row shows "refunded" and the amount
+
+@UC-03 @main @gap
+Scenario: Main. Declined spin shows the platform's message
+  Given the platform cancelled one of the viewer's spins with message "Not enough tokens"
+  When the viewer opens history
+  Then that row shows "Not enough tokens" and no prize
 
 @UC-03 @main @gap
 Scenario: Only own spins

@@ -18,7 +18,7 @@ Gaps and open questions: [gaps.md](gaps.md). Human-readable version with diagram
 | UC-09 | [UC-09-review-reports.md](UC-09-review-reports.md) | operator | prototype+gap | G5 G14 |
 | UC-10 | [UC-10-fulfil-prize.md](UC-10-fulfil-prize.md) | model | tested+gap | G1 G2 G3 |
 | UC-11 | [UC-11-connect-platform.md](UC-11-connect-platform.md) | platform | tested+spec | G5 |
-| UC-12 | [UC-12-run-live-stream.md](UC-12-run-live-stream.md) | platform | tested | G3 |
+| UC-12 | [UC-12-run-live-stream.md](UC-12-run-live-stream.md) | platform | tested+gap | G3 G16 |
 | UC-13 | [UC-13-release-version.md](UC-13-release-version.md) | vendor | tested+gap | G10 |
 | UC-14 | [UC-14-settle-fee.md](UC-14-settle-fee.md) | vendor | gap | G1 G4 |
 

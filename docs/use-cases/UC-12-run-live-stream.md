@@ -4,7 +4,7 @@ title: Run a live stream
 actor: platform
 supporting: [vendor, model]
 status: tested
-gaps: [G3]
+gaps: [G3, G16]
 depends: [UC-04]
 ---
 Goal: sell spins only while the model can still fulfil them.
@@ -23,7 +23,8 @@ Post: every prize sold fits into the stream's remaining time.
 - A1 (from step 4) stream extended: platform sends a later `ends_at`; admission opens again. [spec]
 
 ## Exceptions
-- E1 any stream ends early: sales stop; pending prizes → UC-10 E2. [gap: G3]
+- E1 (any step) Stream ends early: sales stop; pending prizes → UC-10 E2. [gap: G3]
+- E2 (from step 2) Several spins await payment at once: admission counts only prizes already in the queue, not spins still `requested`, and confirmation does not re-check capacity. All of them can be confirmed and overfill the queue or the remaining time. [gap: G16]
 
 ## Acceptance
 ```gherkin
@@ -43,4 +44,10 @@ Scenario: Dynamic price steps up on a busy queue
   When the queue changes
   Then the price becomes 60
   And item chances are unchanged
+
+@UC-12 @E2 @gap
+Scenario: E2. Spins awaiting payment count towards capacity
+  Given the queue limit is 5, 4 prizes are queued and 1 spin is requested
+  When another viewer presses "Spin"
+  Then the spin is refused with queue_full
 ```
